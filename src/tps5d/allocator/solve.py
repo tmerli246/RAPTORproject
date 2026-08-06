@@ -12,7 +12,8 @@ keeps the baseline out of the optimisation.
 
 import numpy as np
 
-from tps5d.core.schema import Allocation
+from tps5d.core.schema import Allocation, LPSolution
+from tps5d.allocator.dominance import ladders
 
 # Machine time is discretised before the dynamic program. The resolution is not
 # innocuous: at 1 min, an occupancy of 36.9 min rounds to 37 and 13 patients no
@@ -70,3 +71,72 @@ def solve_exact(cohort, facility, res=RES):
     used = sum(s.occupancy for s in choice.values())
     mean = np.mean([cohort.dntcp(s) for s in choice.values()])
     return Allocation(choice=choice, used=used, mean_dntcp=mean)
+
+
+def solve_lp(cohort, facility):
+    """Linear relaxation, solved by greedy upgrading after dominance removal.
+
+    Every patient starts on its cheapest surviving option, which is normally the
+    photon strategy at zero proton cost. Capacity is then spent on the pooled
+    upgrades in decreasing order of incremental efficiency. At most one upgrade
+    is taken fractionally, and its efficiency is the shadow price.
+    """
+    kept, ups = ladders(cohort)
+
+    choice = {pid: chain[0] for pid, chain in kept.items()}
+    used = sum(s.occupancy for s in choice.values())
+    if used > facility.budget + 1e-9:
+        raise ValueError("cheapest options already exceed capacity")
+
+    value = sum(cohort.dntcp(s) for s in choice.values())
+    left = facility.budget - used
+    frac, lam = None, 0.0
+
+    # Within a patient the hull makes efficiencies decrease with rank, so a
+    # global scan in decreasing efficiency reaches a patient's upgrades in
+    # order. No predecessor check is needed here, unlike in the integer greedy.
+    for up in sorted(ups, key=lambda u: -u.eff):
+        if up.dcost <= left + 1e-9:
+            choice[up.pid] = kept[up.pid][up.rank]
+            value += up.dutil
+            left -= up.dcost
+        else:
+            w = left / up.dcost
+            value += w * up.dutil
+            frac = (up.pid, kept[up.pid][up.rank].sid, w)
+            lam = up.eff
+            left = 0.0
+            break
+
+    return LPSolution(value=value, lam=lam, used=facility.budget - left,
+                      choice=choice, frac=frac, kept={p: [s.sid for s in c]
+                                                      for p, c in kept.items()})
+
+
+def solve_greedy(cohort, facility):
+    """Integer allocation by incremental efficiency, without fractional upgrades.
+
+    Upgrades are considered in decreasing efficiency and taken when they fit,
+    including after a more efficient upgrade has been skipped for lack of
+    capacity. An upgrade is only available once its predecessor has been taken.
+    """
+    kept, ups = ladders(cohort)
+
+    choice = {pid: chain[0] for pid, chain in kept.items()}
+    rank = {pid: 0 for pid in kept}
+    left = facility.budget - sum(s.occupancy for s in choice.values())
+    if left < -1e-9:
+        raise ValueError("cheapest options already exceed capacity")
+
+    for up in sorted(ups, key=lambda u: -u.eff):
+        if rank[up.pid] != up.rank - 1:
+            continue
+        if up.dcost <= left + 1e-9:
+            choice[up.pid] = kept[up.pid][up.rank]
+            rank[up.pid] = up.rank
+            left -= up.dcost
+
+    used = sum(s.occupancy for s in choice.values())
+    mean = np.mean([cohort.dntcp(s) for s in choice.values()])
+    return Allocation(choice=choice, used=used, mean_dntcp=mean)
+

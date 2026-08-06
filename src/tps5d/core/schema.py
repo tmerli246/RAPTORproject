@@ -121,3 +121,28 @@ class Allocation:
     @property
     def n_pt(self):
         return sum(1 for s in self.choice.values() if s.modality == 'pt')
+
+
+@dataclass
+class LPSolution:
+    """Result of the linear relaxation.
+
+    value    cohort total delta NTCP at the LP optimum
+    lam      shadow price of capacity, delta NTCP per machine-minute
+    used     proton machine minutes consumed
+    choice   integral part of the solution, pid -> Strategy
+    frac     (pid, sid, weight) of the single fractionally taken upgrade, or None
+    kept     surviving options per patient after dominance removal, pid -> [sid]
+    """
+
+    value: float
+    lam: float
+    used: float
+    choice: dict
+    frac: tuple = None
+    kept: dict = field(default_factory=dict)
+
+    def n_dominated(self, cohort):
+        """Options removed as LP-dominated, per patient."""
+        return {pid: len(opts) - len(self.kept[pid])
+                for pid, opts in cohort.by_patient().items()}
