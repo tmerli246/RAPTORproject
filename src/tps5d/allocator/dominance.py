@@ -27,21 +27,19 @@ def _cross(a, b, c):
     return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
 
 
-def hull(pts):
-    """Indices of the points on the upper convex hull, by increasing cost.
+def pareto(pts):
+    """Indices of the non-dominated points, by increasing cost.
 
-    pts   sequence of (cost, utility)
+    Among points of equal cost only the best utility survives, and a point that
+    costs more without buying more is dropped. Utility is strictly increasing
+    along the result.
 
-    Two reductions are applied. First the Pareto frontier: among points of equal
-    cost only the best utility survives, and a point no better than a cheaper
-    one is dropped. Then the upper hull of that frontier. Collinear points are
-    removed, so an option lying exactly on a segment between two others does not
-    appear; it is an alternative optimum, not an additional one.
+    This reduction is valid for both the linear and the integer problem. The
+    hull reduction below is valid only for the linear one.
     """
     order = sorted(range(len(pts)), key=lambda i: (pts[i][0], -pts[i][1]))
 
-    front = []
-    best = None
+    front, best = [], None
     for i in order:
         c, u = pts[i]
         if front and c == pts[front[-1]][0]:
@@ -50,6 +48,25 @@ def hull(pts):
             continue                      # costs more, buys nothing
         front.append(i)
         best = u
+    return front
+
+
+def hull(pts):
+    """Indices of the points on the upper convex hull, by increasing cost.
+
+    pts   sequence of (cost, utility)
+
+    The Pareto frontier is taken first, then the upper hull of that frontier.
+    Collinear points are removed, so an option lying exactly on a segment
+    between two others does not appear; it is an alternative optimum, not an
+    additional one.
+
+    An option below the hull is never selected by the **linear** relaxation,
+    because a convex combination of its neighbours beats it at the same cost.
+    It may well appear in the integer optimum, so this reduction must not be
+    applied before an integer solve.
+    """
+    front = pareto(pts)
 
     keep = []
     for i in front:
@@ -57,6 +74,18 @@ def hull(pts):
             keep.pop()
         keep.append(i)
     return keep
+
+
+def chains(cohort):
+    """Per-patient Pareto-reduced option chains, in increasing cost.
+
+    Used by the integer greedy, which must not see the hull reduction.
+    """
+    out = {}
+    for pid, opts in cohort.by_patient().items():
+        pts = [(s.occupancy, cohort.dntcp(s)) for s in opts]
+        out[pid] = [opts[i] for i in pareto(pts)]
+    return out
 
 
 def ladders(cohort):

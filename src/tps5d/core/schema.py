@@ -18,6 +18,7 @@ class Strategy:
     n_fx      number of fractions
     tau       proton machine occupancy per fraction, minutes. Zero for 'xt'
     ntcp      absolute NTCP per endpoint, {endpoint: probability}
+    scheme    fractionation scheme label. 'std' is the standard schedule
     n_adapt   number of adapted blocks, carried for reporting
     baseline  True for the locked reference strategy (XT-NA, standard schedule)
     """
@@ -28,6 +29,7 @@ class Strategy:
     n_fx: int
     tau: float
     ntcp: dict = field(default_factory=dict)
+    scheme: str = 'std'
     n_adapt: int = 0
     baseline: bool = False
 
@@ -107,6 +109,16 @@ class Cohort:
     def dntcp(self, s):
         """Utility of a strategy: reduction in union NTCP against the baseline."""
         return self._base[s.pid].ntcp_tot - s.ntcp_tot
+
+    def restrict(self, keep):
+        """Sub-cohort holding only the strategies satisfying `keep`.
+
+        The baseline is always retained, so every patient keeps at least one
+        option and the multiple-choice constraint stays satisfiable. Policies
+        use this to express the workflows they are allowed to consider.
+        """
+        opts = [s for s in self.strategies if s.baseline or keep(s)]
+        return Cohort(opts)
 
 
 @dataclass
