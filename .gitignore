@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.vscode/
+.idea/
+.pytest_cache/
+data/
+*.dcm
