@@ -17,7 +17,7 @@ from tps5d.core.schema import Facility
 from tps5d.allocator.solve import solve_exact, solve_lp, solve_greedy
 from tps5d.allocator.dominance import hull
 
-from synth import reference_cohort, ladder_cohort
+from synth import Villaroel_cohort, ladder_cohort
 
 
 def lp_reference(cohort, facility):
@@ -32,16 +32,16 @@ def lp_reference(cohort, facility):
     a_eq = [[1.0 if p == pid else 0.0 for p, _ in cols] for pid in cohort.pids]
     b_eq = [1.0] * len(cohort.pids)
 
-    res = linprog(c, A_ub=a_ub, b_ub=b_ub, A_eq=a_eq, b_eq=b_eq, bounds=(0, 1))
+    res = linprog(c, A_ub = a_ub, b_ub = b_ub, A_eq = a_eq, b_eq = b_eq, bounds = (0, 1))
     assert res.success
     return -res.fun
 
 
 COHORTS = [
-    ('reference', lambda: reference_cohort(14, extra=9.3), Facility(480.0)),
-    ('concave', lambda: ladder_cohort(8, shape='concave'), Facility(480.0, days=14)),
-    ('linear', lambda: ladder_cohort(8, shape='linear'), Facility(480.0, days=14)),
-    ('convex', lambda: ladder_cohort(8, shape='convex'), Facility(480.0, days=14)),
+    ('reference', lambda: Villaroel_cohort(14, extra = 9.3), Facility(480.0)),
+    ('concave', lambda: ladder_cohort(8, shape = 'concave'), Facility(480.0, days = 14)),
+    ('linear', lambda: ladder_cohort(8, shape = 'linear'), Facility(480.0, days = 14)),
+    ('convex', lambda: ladder_cohort(8, shape = 'convex'), Facility(480.0, days = 14)),
 ]
 
 
@@ -49,7 +49,7 @@ COHORTS = [
 def test_t2_greedy_attains_lp_optimum(name, make, fac):
     cohort = make()
     lp = solve_lp(cohort, fac)
-    assert lp.value == pytest.approx(lp_reference(cohort, fac), rel=1e-9, abs=1e-12)
+    assert lp.value == pytest.approx(lp_reference(cohort, fac), rel = 1e-9, abs = 1e-12)
 
 
 @pytest.mark.parametrize('name, make, fac', COHORTS)
@@ -64,7 +64,7 @@ def test_t3_integrality_gap(name, make, fac):
     # The gap is bounded by the utility of the single fractional upgrade, which
     # is a within-patient difference and not a whole patient's utility.
     if lp.frac is None:
-        assert total == pytest.approx(lp.value, abs=1e-9)
+        assert total == pytest.approx(lp.value, abs = 1e-9)
     else:
         pid, sid, w = lp.frac
         chain = [s for s in cohort.by_patient()[pid] if s.sid in lp.kept[pid]]
@@ -83,7 +83,7 @@ def test_t4_shadow_price_is_the_derivative(name, make, fac):
 
     h = 1.0
     up = solve_lp(cohort, Facility(fac.cap_min_day + h / fac.days, fac.days))
-    assert (up.value - lp.value) / h == pytest.approx(lp.lam, rel=1e-6)
+    assert (up.value - lp.value) / h == pytest.approx(lp.lam, rel = 1e-6)
 
 
 @pytest.mark.parametrize('name, make, fac', COHORTS)

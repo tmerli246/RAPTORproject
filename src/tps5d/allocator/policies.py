@@ -24,15 +24,13 @@ from tps5d.allocator.solve import solve_exact, solve_greedy
 # than the threshold is what binds. It is a parameter, not a finding.
 THRESHOLD = 0.0
 
-
 def _wrap(cohort, choice):
     """Package a per-patient choice as an Allocation."""
     used = sum(s.occupancy for s in choice.values())
     mean = np.mean([cohort.dntcp(s) for s in choice.values()])
-    return Allocation(choice=choice, used=used, mean_dntcp=mean)
+    return Allocation(choice = choice, used = used, mean_dntcp = mean)
 
-
-def _refer(cohort, facility, pick, threshold=THRESHOLD):
+def _refer(cohort, facility, pick, threshold = THRESHOLD):
     """Model-based selection: rank patients by benefit, refer until full.
 
     `pick` selects the proton strategy a referred patient would receive. This is
@@ -46,7 +44,7 @@ def _refer(cohort, facility, pick, threshold=THRESHOLD):
         if pt:
             cand.append((pid, pick(pt)))
 
-    cand.sort(key=lambda c: cohort.dntcp(c[1]), reverse=True)
+    cand.sort(key = lambda c: cohort.dntcp(c[1]), reverse = True)
 
     left = facility.budget
     for pid, s in cand:
@@ -57,20 +55,17 @@ def _refer(cohort, facility, pick, threshold=THRESHOLD):
             left -= s.occupancy
     return _wrap(cohort, choice)
 
-
-def p0(cohort, facility, threshold=THRESHOLD):
+def p0(cohort, facility, threshold = THRESHOLD):
     """Current practice: referral on delta NTCP, standard schedule, no adaptation."""
     sub = cohort.restrict(lambda s: s.n_adapt == 0 and s.scheme == 'std')
     return _refer(sub, facility, lambda pt: max(pt, key=sub.dntcp), threshold)
 
-
-def p1(cohort, facility, threshold=THRESHOLD):
+def p1(cohort, facility, threshold = THRESHOLD):
     """The reference study: referral, then adaptation for every proton patient."""
     sub = cohort.restrict(lambda s: s.scheme == 'std')
     return _refer(sub, facility,
                   lambda pt: max(pt, key=lambda s: (s.n_adapt, sub.dntcp(s))),
                   threshold)
-
 
 def p2a(cohort, facility):
     """Greedy by benefit density over patients.
@@ -83,7 +78,7 @@ def p2a(cohort, facility):
     """
     choice = dict(cohort.baseline())
     cand = [s for s in cohort.strategies if s.modality == 'pt' and s.occupancy > 0]
-    cand.sort(key=lambda s: cohort.dntcp(s) / s.occupancy, reverse=True)
+    cand.sort(key = lambda s: cohort.dntcp(s) / s.occupancy, reverse = True)
 
     left, taken = facility.budget, set()
     for s in cand:
@@ -95,19 +90,15 @@ def p2a(cohort, facility):
             left -= s.occupancy
     return _wrap(cohort, choice)
 
-
 def p2b(cohort, facility):
     """Greedy by incremental efficiency after dominance removal."""
     return solve_greedy(cohort, facility)
-
 
 def p3(cohort, facility):
     """Exact multiple-choice knapsack optimum."""
     return solve_exact(cohort, facility)
 
-
 POLICIES = {'P0': p0, 'P1': p1, 'P2a': p2a, 'P2b': p2b, 'P3': p3}
-
 
 def compare(cohort, facility):
     """Run every policy on the same cohort and capacity."""

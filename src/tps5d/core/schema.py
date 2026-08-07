@@ -7,7 +7,6 @@ trivial derived quantities.
 
 from dataclasses import dataclass, field
 
-
 @dataclass
 class Strategy:
     """One candidate treatment strategy for one patient.
@@ -28,7 +27,7 @@ class Strategy:
     modality: str
     n_fx: int
     tau: float
-    ntcp: dict = field(default_factory=dict)
+    ntcp: dict = field(default_factory = dict)
     scheme: str = 'std'
     n_adapt: int = 0
     baseline: bool = False
@@ -56,7 +55,6 @@ class Strategy:
         """Total proton machine minutes over the course."""
         return self.n_fx * self.tau
 
-
 @dataclass
 class Facility:
     """Machine capacity over the horizon.
@@ -71,7 +69,6 @@ class Facility:
     @property
     def budget(self):
         return self.cap_min_day * self.days
-
 
 @dataclass
 class Cohort:
@@ -120,7 +117,6 @@ class Cohort:
         opts = [s for s in self.strategies if s.baseline or keep(s)]
         return Cohort(opts)
 
-
 @dataclass
 class Allocation:
     """Result of solving the allocation problem."""
@@ -133,7 +129,6 @@ class Allocation:
     @property
     def n_pt(self):
         return sum(1 for s in self.choice.values() if s.modality == 'pt')
-
 
 @dataclass
 class LPSolution:
@@ -152,7 +147,7 @@ class LPSolution:
     used: float
     choice: dict
     frac: tuple = None
-    kept: dict = field(default_factory=dict)
+    kept: dict = field(default_factory = dict)
 
     def n_dominated(self, cohort):
         """Options removed as LP-dominated, per patient."""

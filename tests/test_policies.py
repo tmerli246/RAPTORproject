@@ -10,14 +10,14 @@ import pytest
 from tps5d.core.schema import Facility
 from tps5d.allocator.policies import POLICIES, compare
 
-from synth import reference_cohort, ladder_cohort
+from synth import Villaroel_cohort, ladder_cohort
 
 
 COHORTS = [
-    ('reference', lambda: reference_cohort(14, extra=9.3), Facility(480.0)),
-    ('concave', lambda: ladder_cohort(8, shape='concave'), Facility(480.0, days=12)),
-    ('linear', lambda: ladder_cohort(8, shape='linear'), Facility(480.0, days=12)),
-    ('convex', lambda: ladder_cohort(8, shape='convex'), Facility(480.0, days=12)),
+    ('reference', lambda: Villaroel_cohort(14, extra = 9.3), Facility(480.0)),
+    ('concave', lambda: ladder_cohort(8, shape = 'concave'), Facility(480.0, days = 12)),
+    ('linear', lambda: ladder_cohort(8, shape = 'linear'), Facility(480.0, days = 12)),
+    ('convex', lambda: ladder_cohort(8, shape = 'convex'), Facility(480.0, days = 12)),
 ]
 
 

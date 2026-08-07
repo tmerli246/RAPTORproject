@@ -21,13 +21,11 @@ from tps5d.allocator.dominance import ladders, chains
 # session lengths and keeps the state space small.
 RES = 0.1
 
-
-def _units(minutes, res=RES):
+def _units(minutes, res = RES):
     """Machine time in integer units of `res` minutes, rounded up for costs."""
     return int(np.ceil(minutes / res - 1e-9))
 
-
-def solve_exact(cohort, facility, res=RES):
+def solve_exact(cohort, facility, res = RES):
     """Exact MCKP solution.
 
     Returns an Allocation. Raises if any patient has an empty option set.
@@ -43,7 +41,7 @@ def solve_exact(cohort, facility, res=RES):
     # dp[c] is the best objective over the patients processed so far, using at
     # most c units of capacity. Objective is -sum(ntcp_tot), maximised.
     dp = np.zeros(cap + 1)
-    back = np.zeros((len(pids), cap + 1), dtype=np.int16)
+    back = np.zeros((len(pids), cap + 1), dtype = np.int16)
 
     for i, pid in enumerate(pids):
         new = np.full(cap + 1, -np.inf)
@@ -70,8 +68,7 @@ def solve_exact(cohort, facility, res=RES):
 
     used = sum(s.occupancy for s in choice.values())
     mean = np.mean([cohort.dntcp(s) for s in choice.values()])
-    return Allocation(choice=choice, used=used, mean_dntcp=mean)
-
+    return Allocation(choice = choice, used = used, mean_dntcp = mean)
 
 def solve_lp(cohort, facility):
     """Linear relaxation, solved by greedy upgrading after dominance removal.
@@ -95,7 +92,7 @@ def solve_lp(cohort, facility):
     # Within a patient the hull makes efficiencies decrease with rank, so a
     # global scan in decreasing efficiency reaches a patient's upgrades in
     # order. No predecessor check is needed here, unlike in the integer greedy.
-    for up in sorted(ups, key=lambda u: -u.eff):
+    for up in sorted(ups, key = lambda u: -u.eff):
         if up.dcost <= left + 1e-9:
             choice[up.pid] = kept[up.pid][up.rank]
             value += up.dutil
@@ -108,10 +105,9 @@ def solve_lp(cohort, facility):
             left = 0.0
             break
 
-    return LPSolution(value=value, lam=lam, used=facility.budget - left,
-                      choice=choice, frac=frac, kept={p: [s.sid for s in c]
+    return LPSolution(value = value, lam = lam, used = facility.budget - left,
+                      choice = choice, frac = frac, kept = {p: [s.sid for s in c]
                                                       for p, c in kept.items()})
-
 
 def solve_greedy(cohort, facility):
     """Integer allocation by best available upgrade.
@@ -162,5 +158,4 @@ def solve_greedy(cohort, facility):
 
     used = sum(s.occupancy for s in choice.values())
     mean = np.mean([cohort.dntcp(s) for s in choice.values()])
-    return Allocation(choice=choice, used=used, mean_dntcp=mean)
-
+    return Allocation(choice = choice, used = used, mean_dntcp = mean)

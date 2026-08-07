@@ -18,14 +18,6 @@ per machine-minute.
 Inputs are taken from Borderias-Villarroel et al. 2024. They are lung data with
 mean-dose logistic endpoints and do not transfer to abdomen or pelvis. The point
 of the calculation is the order of magnitude and the sign, not the value.
-
-Margin is not an independent component of the strategy. Setup error is reduced
-only where the plan is made on that block's repeat CT, so a reduced-margin plan
-cannot be delivered in a non-adapted block. The adaptation step therefore
-carries the benefit of adaptation *and* of margin reduction together, which is
-the OAPT-2mm column of the reference study rather than the OAPT-Clinic one. The
-clinical-margin figures are retained below only as the control case, in which
-adaptation is performed at an unchanged uncertainty budget.
 """
 
 import numpy as np
@@ -46,7 +38,7 @@ GAINS = {
 }
 
 
-def rho(m, a_total, dtau, n_block=2, p=1.0, tau0=TAU0, n_fx=N_FX):
+def rho(m, a_total, dtau, n_block = 2, p = 1.0, tau0 = TAU0, n_fx = N_FX):
     """Ratio of modality efficiency to first-adaptation efficiency.
 
     m        delta NTCP of the modality step
@@ -62,7 +54,7 @@ def rho(m, a_total, dtau, n_block=2, p=1.0, tau0=TAU0, n_fx=N_FX):
     return eff_mod / eff_ada
 
 
-def dtau_star(m, a_total, n_block=2, p=1.0, tau0=TAU0):
+def dtau_star(m, a_total, n_block = 2, p = 1.0, tau0 = TAU0):
     """Extra minutes per fraction at which rho crosses one."""
     a_first = a_total * (1.0 / n_block) ** p
     return tau0 * a_first * n_block / m
@@ -73,7 +65,7 @@ def dtau_star(m, a_total, n_block=2, p=1.0, tau0=TAU0):
 # reported about 16 additional minutes per adaptive pelvic photon fraction.
 DTAU = [2.4, 5.7, 7.0, 9.3, 13.7, 16.0, 19.0, 25.7]
 
-def hull_size(m, a_total, dtau, n_block=2, p=1.0, tau0=TAU0, n_fx=N_FX):
+def hull_size(m, a_total, dtau, n_block = 2, p = 1.0, tau0 = TAU0, n_fx = N_FX):
     """How many options survive the hull, photon included.
 
     Two means the ladder has collapsed to photons and full adaptation, so the
@@ -88,30 +80,29 @@ def hull_size(m, a_total, dtau, n_block=2, p=1.0, tau0=TAU0, n_fx=N_FX):
         pts.append((cost, gain))
     return len(upper_hull(pts))
 
-
 if __name__ == '__main__':
-    print("\nCASO REALE: la riduzione di margine segue l'adattamento blocco per blocco")
-    print("rho e numero di opzioni superstiti, 2 blocchi, beneficio lineare\n")
+    print("\nREAL CASE: margin reduction follows adaptation block by block")
+    print("rho and number of surviving options, 2 blocks, linear benefit\n")
     print(f"{'dtau':>6}   " + "   ".join(f"{k:>18}" for k in
-                                         ['2ym', 'disfagia', 'polmonite']))
+                                         ['2ym', 'dysphagia', 'pneumonitis']))
     print("-" * 70)
     for dt in DTAU:
         cells = []
         for m, a in [(6.9, 3.8), (6.1, 7.5), (7.7, 4.7)]:
-            cells.append(f"rho {rho(m, a, dt):5.2f}  opz {hull_size(m, a, dt)}")
+            cells.append(f"rho {rho(m, a, dt):5.2f}  opt {hull_size(m, a, dt)}")
         print(f"{dt:6.1f}   " + "   ".join(f"{c:>18}" for c in cells))
 
-    print("\nCONTROLLO: adattamento a margini invariati (arm PT-A margine 1)")
+    print("\nCONTROL: adaptation at unchanged margins (PT-A margin 1 arm)")
     print(f"{'dtau':>6}   {'2ym':>18}")
     print("-" * 30)
     for dt in DTAU:
-        print(f"{dt:6.1f}   rho {rho(6.9, 0.9, dt):5.2f}  opz {hull_size(6.9, 0.9, dt)}")
+        print(f"{dt:6.1f}   rho {rho(6.9, 0.9, dt):5.2f}  opt {hull_size(6.9, 0.9, dt)}")
 
-    print("\nSoglia dtau* alla quale rho = 1 (minuti extra per frazione)")
+    print("\nThreshold dtau* at which rho = 1 (extra minutes per fraction)")
     print(f"{'arm':>28} {'p = 1':>8} {'p = 0.5':>9}")
     print("-" * 48)
     for name, (m, a_c, a_2) in GAINS.items():
-        print(f"{name + ', margine ridotto':>28} "
-              f"{dtau_star(m, a_2):8.1f} {dtau_star(m, a_2, p=0.5):9.1f}")
-    print(f"{'2ym, controllo margine fisso':>28} "
-          f"{dtau_star(6.9, 0.9):8.1f} {dtau_star(6.9, 0.9, p=0.5):9.1f}")
+        print(f"{name + ', reduced margin':>28} "
+              f"{dtau_star(m, a_2):8.1f} {dtau_star(m, a_2, p = 0.5):9.1f}")
+    print(f"{'2ym, fixed-margin control':>28} "
+          f"{dtau_star(6.9, 0.9):8.1f} {dtau_star(6.9, 0.9, p = 0.5):9.1f}")

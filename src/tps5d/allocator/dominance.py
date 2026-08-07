@@ -21,11 +21,9 @@ TOL = 1e-12
 
 Upgrade = namedtuple('Upgrade', 'pid rank dcost dutil eff')
 
-
 def _cross(a, b, c):
     """Twice the signed area of (a, b, c). Positive if b lies below the line ac."""
     return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
-
 
 def pareto(pts):
     """Indices of the non-dominated points, by increasing cost.
@@ -49,7 +47,6 @@ def pareto(pts):
         front.append(i)
         best = u
     return front
-
 
 def hull(pts):
     """Indices of the points on the upper convex hull, by increasing cost.
@@ -75,7 +72,6 @@ def hull(pts):
         keep.append(i)
     return keep
 
-
 def chains(cohort):
     """Per-patient Pareto-reduced option chains, in increasing cost.
 
@@ -86,7 +82,6 @@ def chains(cohort):
         pts = [(s.occupancy, cohort.dntcp(s)) for s in opts]
         out[pid] = [opts[i] for i in pareto(pts)]
     return out
-
 
 def ladders(cohort):
     """Per-patient hull options and the upgrades between them.
