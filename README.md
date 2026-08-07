@@ -1,13 +1,20 @@
 # 5D-TPS
 
 Adaptation, fractionation and capacity-constrained allocation for adaptive proton
-therapy. Work package 1 and 2 of the RAPTORplus doctoral project at KU Leuven and
-UCLouvain.
+therapy in the context of the DC18 RAPTORplus doctoral project at KU Leuven and
+UCLouvain, which consists of three work packages. 
 
-The package extends the analysis of Borderias-Villarroel et al. (Radiother Oncol
-198, 2024) by treating fractionation as a second degree of freedom alongside
+The first two (WP1, WP2) extends the analysis of 
+Borderias-Villarroel et al. (Radiother Oncol 198, 2024) 
+by treating fractionation as a second degree of freedom alongside
 adaptation timing, and by allocating a capacity-constrained proton resource
 across a cohort whose members no longer consume equal machine time.
+
+The last one (WP3) involves the development and training of an AI decision-support agent
+with reinforcement learning and will be addressed in the future. 
+
+As of now, the repository consists mostly of what is needed for WP1 and WP2.
+
 
 ## Structure
 
