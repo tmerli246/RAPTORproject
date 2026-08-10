@@ -9,9 +9,9 @@ import numpy as np
 import pytest
 
 from tps5d.evaluator.ntcp import (
-    MODELS, bed, eqd2, eqd2_from_bed, dvh, geud, geud_from_dvh,
-    lkb_from_geud, lkb_ntcp,
+    bed, eqd2, eqd2_from_bed, dvh, geud, geud_from_dvh, lkb_from_geud,
 )
+from tps5d.evaluator.registry import REGISTRY, evaluate_dose
 
 RNG = np.random.default_rng(7)
 
@@ -91,20 +91,20 @@ def test_geud_from_dvh_matches_voxelwise_within_bin_width():
 
 def test_dvh_conserves_volume():
     dose = RNG.uniform(0.0, 70.0, 3000)
-    _, frac = dvh(dose, bin_width = 0.1)
+    _, frac = dvh(dose)
     assert frac.sum() == pytest.approx(1.0)
 
 # LKB probit
 def test_ntcp_is_half_at_td50():
     dose = np.full(300, 76.9)          # uniform dose at TD50, already EQD2
-    m = MODELS["rectum_bleeding_g2"]
-    g = geud(dose, m.n)
-    assert lkb_from_geud(g, m.td50, m.m) == pytest.approx(0.5, abs=1e-9)
+    m = REGISTRY["rectum_bleeding_g2"]
+    g = geud(dose, m.params['n'])
+    assert lkb_from_geud(g, m.params['td50'], m.params['m']) == pytest.approx(0.5, abs = 1e-9)
 
 def test_ntcp_monotone_in_dose():
-    m = MODELS["rectum_bleeding_g2"]
+    m = REGISTRY["rectum_bleeding_g2"]
     levels = [30.0, 45.0, 60.0, 76.9, 90.0]
-    vals = [lkb_ntcp(np.full(200, d), 28, m) for d in levels]
+    vals = [evaluate_dose(m, np.full(200, d), 28) for d in levels]
     assert all(a < b for a, b in zip(vals, vals[1:]))
 
 def test_lkb_from_geud_vectorizes_over_parameters():
@@ -118,6 +118,6 @@ def test_lkb_from_geud_vectorizes_over_parameters():
 def test_hypofractionation_raises_ntcp_at_fixed_physical_dose():
     """Same physical dose in fewer fractions must give higher NTCP for an
     organ with low alpha/beta. Sign check on the whole chain."""
-    m = MODELS["rectum_bleeding_g2"]
+    m = REGISTRY["rectum_bleeding_g2"]
     dose = np.full(300, 60.0)
-    assert lkb_ntcp(dose, 5, m) > lkb_ntcp(dose, 30, m)
+    assert evaluate_dose(m, dose, 5) > evaluate_dose(m, dose, 30)

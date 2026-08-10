@@ -27,10 +27,9 @@ queryable.
 from dataclasses import dataclass, field
 import numpy as np
 
-from tps5d.evaluator.ntcp import geud, lkb_from_geud
+from tps5d.evaluator.ntcp import eqd2, geud, lkb_from_geud
 
 KINDS = ('lkb', 'logistic', 'rseriality')
-
 
 @dataclass
 class Model:
@@ -52,8 +51,8 @@ class Model:
     kind: str
     roi: str
     alpha_beta: float = None
-    params: dict = field(default_factory=dict)
-    covariates: list = field(default_factory=list)
+    params: dict = field(default_factory = dict)
+    covariates: list = field(default_factory = list)
     source: str = ""
     fitted_on: str = ""
 
@@ -74,28 +73,17 @@ class Model:
         """Whether the form admits an explicit dose-per-fraction correction."""
         return self.kind in ('lkb', 'rseriality')
 
-# Registry, populated only for the example of task 0.
+# Registry, populated only for the site in use in task 0 for now. The mechanism is general.
 REGISTRY = {
     'rectum_bleeding_g2': Model(
         name = 'rectum_bleeding_g2',
-        site = 'pelvis',
+        site ='pelvis',
         kind = 'lkb',
         roi = 'Rectum',
         alpha_beta = 3.0,
         params = {'n': 0.09, 'm': 0.13, 'td50': 76.9},
         source = 'Michalski et al., QUANTEC, IJROBP 2010',
         fitted_on = 'solid rectum, photon, 1.8-2.0 Gy/fx',
-    ),
-    'bowel_placeholder': Model(
-        name = 'bowel_placeholder',
-        site = 'pelvis',
-        kind = 'lkb',
-        roi = 'Bowel',
-        alpha_beta = 3.0,
-        params = {'n': 0.09, 'm': 0.30, 'td50': 59.0},
-        source = 'QUANTEC stomach bleeding fit, Kavanagh et al. IJROBP 2010 '
-               '(PLACEHOLDER, not validated for acute diarrhoea)',
-        fitted_on = 'stomach, photon, conventional fractionation',
     ),
 }
 
@@ -131,7 +119,7 @@ def validate_cohort(models, patients):
             if c not in p.covariates:
                 raise ValueError(f"{p.pid}: missing covariate '{c}'")
 
-def evaluate(model, eqd2_dose = None, metrics = None, covariates = None):
+def evaluate(model, eqd2_dose=None, metrics=None, covariates=None):
     """NTCP of one model.
 
     eqd2_dose  voxel EQD2 inside model.roi, for 'lkb' and 'rseriality'. The
@@ -156,10 +144,22 @@ def evaluate(model, eqd2_dose = None, metrics = None, covariates = None):
             s += coef * pool[term]
         return float(1.0 / (1.0 + np.exp(-s)))
 
-    # relative seriality (Kallman). Equal-volume voxels.
-    d = np.clip(np.asarray(eqd2_dose, dtype = float), 0.0, None)
+    # Relative seriality (Kallman). Equal-volume voxels.
+    d = np.clip(np.asarray(eqd2_dose, dtype=float), 0.0, None)
     d50, gamma, srs = model.params['d50'], model.params['gamma'], model.params['s']
     p_vox = 2.0 ** (-np.exp(np.e * gamma * (1.0 - d / d50)))
     v = 1.0 / d.size
     prod = np.prod((1.0 - p_vox ** srs) ** v)
     return float((1.0 - prod) ** (1.0 / srs))
+
+def evaluate_dose(model, dose, n_fx):
+    """NTCP of one model from a single plan's physical dose.
+
+    Convenience for the one-segment case: converts to EQD2 at the model's
+    alpha/beta, then evaluates. A multi-block course goes through the
+    evaluator's accumulation path instead (BED per block, deform, sum over
+    blocks, one final conversion) and calls evaluate() on the resulting field.
+    """
+    if model.alpha_beta is None:
+        raise ValueError(f"{model.name}: metric-based form, use evaluate()")
+    return evaluate(model, eqd2_dose = eqd2(dose, n_fx, model.alpha_beta))
