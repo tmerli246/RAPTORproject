@@ -22,7 +22,7 @@ def Villaroel_cohort(n = 14, extra = 0.0, tau0 = 34.2, dntcp = None, seed = 0):
     rng = np.random.default_rng(seed)
     if dntcp is None:
         dntcp = rng.uniform(0.02, 0.12, n)
-    dntcp = np.asarray(dntcp, dtype=float)
+    dntcp = np.asarray(dntcp, dtype = float)
 
     base = 0.30
     out = []

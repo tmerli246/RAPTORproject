@@ -58,13 +58,13 @@ def _refer(cohort, facility, pick, threshold = THRESHOLD):
 def p0(cohort, facility, threshold = THRESHOLD):
     """Current practice: referral on delta NTCP, standard schedule, no adaptation."""
     sub = cohort.restrict(lambda s: s.n_adapt == 0 and s.scheme == 'std')
-    return _refer(sub, facility, lambda pt: max(pt, key=sub.dntcp), threshold)
+    return _refer(sub, facility, lambda pt: max(pt, key = sub.dntcp), threshold)
 
 def p1(cohort, facility, threshold = THRESHOLD):
     """The reference study: referral, then adaptation for every proton patient."""
     sub = cohort.restrict(lambda s: s.scheme == 'std')
     return _refer(sub, facility,
-                  lambda pt: max(pt, key=lambda s: (s.n_adapt, sub.dntcp(s))),
+                  lambda pt: max(pt, key = lambda s: (s.n_adapt, sub.dntcp(s))),
                   threshold)
 
 def p2a(cohort, facility):

@@ -18,6 +18,18 @@ per machine-minute.
 Inputs are taken from Borderias-Villarroel et al. 2024. They are lung data with
 mean-dose logistic endpoints and do not transfer to abdomen or pelvis. The point
 of the calculation is the order of magnitude and the sign, not the value.
+
+At a fixed fractionation scheme, whether the per-block adaptation decision carries 
+any allocative value is governed by a threshold in the extra time per adapted fraction.
+Below the threshold the option ladder collapses to photons versus fully 
+adapted protons and the problem reduces to the reference study's structure;
+above it, the heterogeneous cohort that motivates the allocator becomes reachable. 
+The threshold is a per-scheme statement: each fractionation
+scheme carries its own (τ_0, a, m) and therefore its own Δτ*, and the competition 
+between schemes, in which the biological penalty of larger fractions 
+trades against the capacity they free, is not captured by the formula.
+That cross-scheme interaction is the subject of the study and is resolved by 
+the allocator, not by a closed form. 
 """
 
 import numpy as np

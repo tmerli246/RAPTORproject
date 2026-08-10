@@ -19,7 +19,6 @@ from tps5d.allocator.dominance import hull
 
 from synth import Villaroel_cohort, ladder_cohort
 
-
 def lp_reference(cohort, facility):
     """LP optimum of the full relaxation, without dominance removal."""
     opts, cols = cohort.by_patient(), []
@@ -36,7 +35,6 @@ def lp_reference(cohort, facility):
     assert res.success
     return -res.fun
 
-
 COHORTS = [
     ('reference', lambda: Villaroel_cohort(14, extra = 9.3), Facility(480.0)),
     ('concave', lambda: ladder_cohort(8, shape = 'concave'), Facility(480.0, days = 14)),
@@ -44,13 +42,11 @@ COHORTS = [
     ('convex', lambda: ladder_cohort(8, shape = 'convex'), Facility(480.0, days = 14)),
 ]
 
-
 @pytest.mark.parametrize('name, make, fac', COHORTS)
 def test_t2_greedy_attains_lp_optimum(name, make, fac):
     cohort = make()
     lp = solve_lp(cohort, fac)
     assert lp.value == pytest.approx(lp_reference(cohort, fac), rel = 1e-9, abs = 1e-12)
-
 
 @pytest.mark.parametrize('name, make, fac', COHORTS)
 def test_t3_integrality_gap(name, make, fac):
@@ -72,7 +68,6 @@ def test_t3_integrality_gap(name, make, fac):
                    for a, b in zip(chain, chain[1:]))
         assert lp.value - total <= step + 1e-9
 
-
 @pytest.mark.parametrize('name, make, fac', COHORTS)
 def test_t4_shadow_price_is_the_derivative(name, make, fac):
     cohort = make()
@@ -85,7 +80,6 @@ def test_t4_shadow_price_is_the_derivative(name, make, fac):
     up = solve_lp(cohort, Facility(fac.cap_min_day + h / fac.days, fac.days))
     assert (up.value - lp.value) / h == pytest.approx(lp.lam, rel = 1e-6)
 
-
 @pytest.mark.parametrize('name, make, fac', COHORTS)
 def test_greedy_is_feasible_and_below_exact(name, make, fac):
     cohort = make()
@@ -94,23 +88,19 @@ def test_greedy_is_feasible_and_below_exact(name, make, fac):
     assert gr.used <= fac.budget + 1e-9
     assert gr.mean_dntcp <= ex.mean_dntcp + 1e-9
 
-
 def test_hull_drops_interior_points():
     """A point below the segment joining its neighbours is removed."""
     pts = [(0.0, 0.0), (10.0, 0.4), (20.0, 1.0)]      # 0.4 < 0.5, below the line
     assert hull(pts) == [0, 2]
 
-
 def test_hull_drops_collinear_points():
     pts = [(0.0, 0.0), (10.0, 0.5), (20.0, 1.0)]
     assert hull(pts) == [0, 2]
-
 
 def test_hull_drops_dominated_and_equal_cost():
     """More expensive and no better, or same cost and worse, both go."""
     pts = [(0.0, 0.0), (10.0, 0.5), (10.0, 0.2), (15.0, 0.4), (20.0, 1.0)]
     assert hull(pts) == [0, 4]
-
 
 def test_hull_keeps_a_concave_chain():
     pts = [(0.0, 0.0), (10.0, 0.6), (20.0, 1.0), (30.0, 1.2)]

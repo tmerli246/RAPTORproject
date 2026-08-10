@@ -18,7 +18,6 @@ from synth import Villaroel_cohort
 EXTRA = [0.0, 2.4, 5.7, 9.3, 13.7, 19.0, 25.7]
 N_PT = [14, 13, 12, 11, 10, 9, 8]
 
-
 @pytest.mark.parametrize('extra, expected', list(zip(EXTRA, N_PT)))
 def test_t1_patient_count(extra, expected):
     """The number of proton patients matches the reference study's ladder."""
@@ -26,7 +25,6 @@ def test_t1_patient_count(extra, expected):
     alloc = solve_exact(cohort, Facility(cap_min_day = 480.0))
     assert alloc.n_pt == expected
     assert alloc.used <= 480.0 + 1e-9
-
 
 @pytest.mark.parametrize('extra', EXTRA)
 def test_t1_displaced_are_lowest_benefit(extra):
@@ -39,7 +37,6 @@ def test_t1_displaced_are_lowest_benefit(extra):
                for s in cohort.strategies if s.modality == 'pt'}
     order = sorted(benefit, key=benefit.get, reverse=True)
     assert pt == set(order[:len(pt)])
-
 
 def test_t5_absolute_and_delta_agree():
     """The allocation does not depend on whether the baseline is subtracted."""
