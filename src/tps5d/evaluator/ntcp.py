@@ -1,7 +1,10 @@
 """Biological functions for the evaluator.
 
-Pure functions only. Endpoint models and their parameters live in 
-the registry, which is the single place a parameter is written down. 
+Pure functions only: no model records and no model dictionary. Endpoint models
+and their parameters live in the registry, which is the single place a
+parameter is written down. Keeping both here and there invites a parameter to
+be changed in one and not the other, so that a result depends on which module
+was imported.
 """
 
 import numpy as np
@@ -37,18 +40,15 @@ def eqd2(dose, n_fx, ab):
 # The cache boundary is the DVH: TD50 and m enter only at the final evaluation,
 # but the volume parameter n enters through the gEUD exponent, so a cached gEUD
 # cannot be re-evaluated at a perturbed n while a cached DVH can.
-def dvh(dose, bin_width = 0.1):
-    """Differential DVH with equal-volume voxels.
-    dose : voxel doses (Gy)
-    Returns (edges, frac) where frac[i] is the volume fraction in
-    [edges[i], edges[i+1]).
-    """
-    dose = np.clip(dose, 0.0, None)
-    hi = max(float(dose.max()) + bin_width, bin_width)
-    edges = np.arange(0.0, hi + bin_width, bin_width)
-    counts, edges = np.histogram(dose, bins = edges)
-    return edges, counts / dose.size
-
+#
+# The DVH itself comes from OpenTPS (opentps.core.data.DVH), which computes it
+# from a DoseImage and an ROIMask and exposes it through `histogram` as a
+# cumulative curve: dose bin centres in Gy and the volume receiving at least
+# that dose, in per cent. We do not compute our own.
+#
+# NB: OpenTPS writes the power-mean exponent as EUDa in its
+# optimisation objectives, where we write 1/n with n the LKB volume parameter.
+# EUDa = 1/n. 
 def geud(dose, n):
     """Generalized equivalent uniform dose from equal-volume voxel doses.
     dose : voxel doses (Gy)
@@ -57,18 +57,35 @@ def geud(dose, n):
     dose = np.clip(dose, 0.0, None)
     return np.mean(dose ** (1.0 / n)) ** n
 
-def geud_from_dvh(edges, frac, n):
-    """gEUD recomputed from a differential DVH at bin centres.
-    Binning error is controlled by the bin width and verified against the
-    voxel-wise route on the first real case (assumption E3).
+def geud_from_cumulative_dvh(dose_bins, volume_pct, n):
+    """gEUD from a cumulative DVH, as returned by OpenTPS DVH.histogram.
+
+    dose_bins  : bin centres (Gy), increasing
+    volume_pct : volume receiving at least that dose (per cent), decreasing
+    n          : LKB volume parameter
+
+    The power mean needs volume fractions per bin, so the cumulative curve is
+    differenced first. Recomputing gEUD at a perturbed n costs one pass over a
+    few thousand bins, which is what makes the parameter propagation affordable
+    without touching the accumulated dose field.
+
+    Binning error against the voxel-wise route is assumption E3, verified once
+    on a real case rather than assumed.
     """
-    centres = 0.5 * (edges[:-1] + edges[1:])
-    return np.sum(frac * centres ** (1.0 / n)) ** n
+    dose_bins = np.asarray(dose_bins, dtype = float)
+    volume_pct = np.asarray(volume_pct, dtype = float)
+    frac = -np.diff(volume_pct, append = 0.0) / 100.0
+    frac = np.clip(frac, 0.0, None)
+    total = frac.sum()
+    if total <= 0.0:
+        raise ValueError("empty DVH: no volume in any bin")
+    frac = frac / total
+    return float(np.sum(frac * np.clip(dose_bins, 0.0, None) ** (1.0 / n)) ** n)
 
 # NTCP
 # The probit step is separate from the dose reduction so that the Monte Carlo
 # parameter propagation can loop over (td50, m) at a fixed gEUD, and over n at
-# a fixed DVH, without touching any dose array. [Uncertainty propagation]
+# a fixed DVH, without touching any dose array.
 def lkb_from_geud(g, td50, m):
     """LKB probit on a precomputed gEUD. Vectorized over parameters."""
     t = (g - td50) / (m * td50)

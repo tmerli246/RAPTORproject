@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from tps5d.evaluator.ntcp import (
-    bed, eqd2, eqd2_from_bed, dvh, geud, geud_from_dvh, lkb_from_geud,
+    bed, eqd2, eqd2_from_bed, geud, geud_from_cumulative_dvh, lkb_from_geud,
 )
 from tps5d.evaluator.registry import REGISTRY, evaluate_dose
 
@@ -68,31 +68,50 @@ def test_geud_bounded_by_mean_and_max():
 
 def test_geud_is_monotone_in_n_between_mean_and_max():
     dose = RNG.uniform(10.0, 60.0, 1000)
-    values = [geud(dose, n = n) for n in (0.05, 0.1, 0.3, 1.0)]
+    values = [geud(dose, n) for n in (0.05, 0.1, 0.3, 1.0)]
     assert all(a >= b for a, b in zip(values, values[1:]))
     assert dose.mean() <= values[-1] <= values[0] <= dose.max()
 
 def test_geud_uniform_dose_is_itself():
     dose = np.full(400, 42.0)
     for n in (0.05, 0.5, 1.0):
-        assert np.isclose(geud(dose, n = n), 42.0)
+        assert np.isclose(geud(dose, n), 42.0)
 
 # DVH boundary (assumption E3 harness)
-def test_geud_from_dvh_matches_voxelwise_within_bin_width():
+# In production the DVH comes from OpenTPS. The helper below reproduces the
+# shape OpenTPS returns from DVH.histogram, namely bin centres in Gy and the
+# volume receiving at least that dose in per cent, so that the reduction is
+# testable without OpenTPS installed. 
+def cumulative_dvh(dose, n_bins = 4096, max_dose = 100.0):
+    """Cumulative DVH in the form OpenTPS returns."""
+    dose = np.clip(dose, 0.0, None)
+    edges = np.linspace(0.0, max_dose, n_bins + 1)
+    edges[-1] = max(max_dose, float(dose.max())) + 1e-9
+    counts, _ = np.histogram(dose, bins = edges)
+    above = np.cumsum(counts[::-1])[::-1]
+    centres = edges[:n_bins] + 0.5 * (edges[1] - edges[0])
+    return centres, above * 100.0 / dose.size
+
+def test_geud_from_dvh_matches_voxelwise():
     """The binned route agrees with the voxel-wise route for serial and
     parallel volume parameters. This is the check to rerun on the first
-    exported case."""
+    exported case, with the DVH taken from OpenTPS."""
     dose = np.concatenate([RNG.uniform(0.0, 30.0, 5000),
                            RNG.uniform(45.0, 55.0, 2000)])
-    edges, frac = dvh(dose, bin_width = 0.1)
+    bins, vol = cumulative_dvh(dose)
     for n in (0.09, 0.5, 1.0):
-        assert geud_from_dvh(edges, frac, n = n) == pytest.approx(
-            geud(dose, n = n), abs = 0.1)
+        assert geud_from_cumulative_dvh(bins, vol, n) == pytest.approx(
+            geud(dose, n), rel = 0.01)
 
-def test_dvh_conserves_volume():
-    dose = RNG.uniform(0.0, 70.0, 3000)
-    _, frac = dvh(dose)
-    assert frac.sum() == pytest.approx(1.0)
+def test_geud_from_dvh_exact_for_uniform_dose():
+    dose = np.full(4000, 42.0)
+    bins, vol = cumulative_dvh(dose)
+    assert geud_from_cumulative_dvh(bins, vol, 0.09) == pytest.approx(42.0, rel = 0.01)
+
+def test_geud_from_dvh_rejects_an_empty_histogram():
+    bins, vol = np.linspace(0, 100, 10), np.zeros(10)
+    with pytest.raises(ValueError, match = "empty DVH"):
+        geud_from_cumulative_dvh(bins, vol, 0.09)
 
 # LKB probit
 def test_ntcp_is_half_at_td50():
