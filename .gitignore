@@ -9,3 +9,4 @@ dist/
 data/
 *.dcm
 figures/
+figures*/

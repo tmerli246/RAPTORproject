@@ -7,24 +7,30 @@ reported never risks changing what is solved.
 
 The reported quantities, and where each is committed to:
 
-    cohort mean delta NTCP per policy      
-    shadow price lambda                    
-    Pareto and LP dominance counts         
-    cohort composition by arm              
-    per-endpoint delta NTCP                
+    cohort mean delta NTCP per policy
+    shadow prices lambda_pt and lambda_xt, the latter as a curve over the
+    normalised photon budget
+    Pareto and LP dominance counts
+    cohort composition by arm
+    per-endpoint delta NTCP
+
+The sweep functions produce every candidate output of road Section 5.12
+without deciding internally which one is the result: the hierarchy is a
+property of the manuscript, not of the code.
 """
 
 import csv
 
 import numpy as np
 
+from tps5d.core.schema import Facility
 from tps5d.allocator.solve import solve_lp
 from tps5d.allocator.dominance import pareto, hull
 
 def arm_label(s):
     """Short label for the arm a strategy belongs to."""
     if s.modality == 'xt':
-        return 'photons'
+        return f"XT, {s.n_adapt} adapt" if s.n_adapt else "photons"
     return f"PT, {s.n_adapt} adapt" if s.n_adapt else "PT, no adapt"
 
 def summarise(cohort, alloc, facility = None):
@@ -38,12 +44,17 @@ def summarise(cohort, alloc, facility = None):
         'mean_dntcp': alloc.mean_dntcp,
         'n_patients': len(chosen),
         'n_pt': sum(1 for s in chosen if s.modality == 'pt'),
+        'n_xt_adapted': sum(1 for s in chosen
+                            if s.modality == 'xt' and s.n_adapt > 0),
         'n_adapt_total': sum(s.n_adapt for s in chosen),
-        'used_min': alloc.used,
+        'used_pt_min': alloc.used_pt,
+        'used_xt_min': alloc.used_xt,
     }
     if facility is not None:
-        rec['budget_min'] = facility.budget
-        rec['utilisation'] = alloc.used / facility.budget if facility.budget else 0.0
+        rec['budget_pt_min'] = facility.budget_pt
+        rec['budget_xt_min'] = facility.budget_xt
+        rec['utilisation'] = alloc.used_pt / facility.budget_pt if facility.budget_pt else 0.0
+        rec['utilisation_xt'] = alloc.used_xt / facility.budget_xt if facility.budget_xt else 0.0
 
     # Per-endpoint mean delta NTCP, for the reporting table. Selection uses the
     # union scalar; these are reported alongside it, never selected on.
@@ -66,21 +77,33 @@ def dominance_counts(cohort):
     relaxation would never buy at any capacity, which is the clinically
     informative statement. One combined count would let the first swamp the
     second.
+
+    The reductions are chain-scoped: each chain lies on one cost axis, so the
+    counts are computed per chain and summed. No reduction is taken across
+    chains.
     """
     per_patient, tot = {}, {'n_options': 0, 'n_pareto': 0, 'n_lp': 0}
     for pid, opts in cohort.by_patient().items():
-        pts = [(s.occupancy, cohort.dntcp(s)) for s in opts]
-        n_par, n_hull = len(pareto(pts)), len(hull(pts))
-        per_patient[pid] = {'n_options': len(opts),
-                            'n_pareto_dominated': len(opts) - n_par,
+        n_par, n_hull, n_opts = 0, 0, 0
+        for cost in ('occ_pt', 'occ_xt'):
+            chain = [s for s in opts
+                     if (s.tau_xt == 0.0) == (cost == 'occ_pt')]
+            if not chain:
+                continue
+            pts = [(getattr(s, cost), cohort.dntcp(s)) for s in chain]
+            n_opts += len(chain)
+            n_par += len(pareto(pts))
+            n_hull += len(hull(pts))
+        per_patient[pid] = {'n_options': n_opts,
+                            'n_pareto_dominated': n_opts - n_par,
                             'n_lp_dominated': n_par - n_hull}
-        tot['n_options'] += len(opts)
-        tot['n_pareto'] += len(opts) - n_par
+        tot['n_options'] += n_opts
+        tot['n_pareto'] += n_opts - n_par
         tot['n_lp'] += n_par - n_hull
     return per_patient, tot
 
 def sweep(make_cohort, facility, dtaus, policies):
-    """Run every policy across a range of adaptation times.
+    """Run every policy across a range of proton adaptation times.
 
     make_cohort : callable dtau -> Cohort. Adaptation time changes occupancy,
                   so the cohort is rebuilt at each point rather than reweighted
@@ -91,13 +114,46 @@ def sweep(make_cohort, facility, dtaus, policies):
     out = []
     for dt in dtaus:
         cohort = make_cohort(dt)
-        lam = solve_lp(cohort, facility).lam
+        lp = solve_lp(cohort, facility)
         _, dom = dominance_counts(cohort)
         for name, fn in policies.items():
-            rec = {'dtau': dt, 'policy': name, 'lambda': lam}
+            rec = {'dtau': dt, 'policy': name,
+                   'lambda_pt': lp.lam_pt, 'lambda_xt': lp.lam_xt}
             rec.update(summarise(cohort, fn(cohort, facility), facility))
             rec.update({'n_lp_dominated': dom['n_lp'],
                         'n_pareto_dominated': dom['n_pareto']})
+            out.append(rec)
+    return out
+
+def sweep_budget_xt(cohort, facility, fracs, policies = None):
+    """Sweep the photon adaptation budget on the normalised axis.
+
+    fracs are fractions of the cohort's photon adaptation demand, so 0 is the
+    reference study's comparator and 1 is the free case by construction: the
+    endpoints are tests T8 and T9. lambda_xt read at each point is the curve of
+    road Section 5.12, output 2; absolute minutes are carried alongside as the
+    secondary axis.
+
+    policies, if given, are additionally evaluated at each point.
+
+    Returns a list of dicts, one per point (per point and policy if policies
+    are given).
+    """
+    demand = cohort.demand_xt()
+    out = []
+    for f in fracs:
+        fac = Facility(facility.cap_pt_min_day, f * demand / facility.days,
+                       facility.days)
+        lp = solve_lp(cohort, fac)
+        base = {'cxt_frac': f, 'cxt_min': fac.budget_xt,
+                'lambda_pt': lp.lam_pt, 'lambda_xt': lp.lam_xt}
+        if policies is None:
+            out.append(base)
+            continue
+        for name, fn in policies.items():
+            rec = dict(base)
+            rec['policy'] = name
+            rec.update(summarise(cohort, fn(cohort, fac), fac))
             out.append(rec)
     return out
 

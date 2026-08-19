@@ -10,6 +10,14 @@ neighbours beats it at the same cost.
 This is the step that makes greedy allocation safe. A non-concave benefit
 profile produces options below the hull, which are removed here rather than
 mis-ranked later.
+
+Under two resources the reductions are scoped **chain by chain** (allocator
+design, Section 5.2): each chain lies on a single cost axis, so the hull
+argument is unchanged within a chain, and no hull is taken across chains.
+`chains` and `ladders` build the proton chain, on the proton cost axis, which
+is what the greedy heuristics rank under the adopted convention. The photon
+chain is not ranked by any heuristic; policies spend the photon budget by a
+separate rule.
 """
 
 from collections import namedtuple
@@ -72,32 +80,42 @@ def hull(pts):
         keep.append(i)
     return keep
 
+def _proton_chain(opts):
+    """The options on the proton cost axis: XT-NA and the proton rungs.
+
+    Photon-adapted options consume the other budget and are not part of this
+    chain; the heuristics that rank proton upgrades never see them.
+    """
+    return [s for s in opts if s.tau_xt == 0.0]
+
 def chains(cohort):
-    """Per-patient Pareto-reduced option chains, in increasing cost.
+    """Per-patient Pareto-reduced proton chains, in increasing proton cost.
 
     Used by the integer greedy, which must not see the hull reduction.
     """
     out = {}
     for pid, opts in cohort.by_patient().items():
-        pts = [(s.occupancy, cohort.dntcp(s)) for s in opts]
-        out[pid] = [opts[i] for i in pareto(pts)]
+        chain = _proton_chain(opts)
+        pts = [(s.occ_pt, cohort.dntcp(s)) for s in chain]
+        out[pid] = [chain[i] for i in pareto(pts)]
     return out
 
 def ladders(cohort):
-    """Per-patient hull options and the upgrades between them.
+    """Per-patient hull of the proton chain and the upgrades between rungs.
 
     Returns (kept, ups) where kept maps a patient to its surviving strategies in
-    increasing cost, and ups is the flat list of upgrades across all patients.
-    Within a patient the efficiencies decrease by construction of the hull.
+    increasing proton cost, and ups is the flat list of upgrades across all
+    patients. Within a patient the efficiencies decrease by construction of the
+    hull.
     """
     kept, ups = {}, []
     for pid, opts in cohort.by_patient().items():
-        pts = [(s.occupancy, cohort.dntcp(s)) for s in opts]
+        chain = _proton_chain(opts)
+        pts = [(s.occ_pt, cohort.dntcp(s)) for s in chain]
         idx = hull(pts)
-        chain = [opts[i] for i in idx]
-        kept[pid] = chain
-        for r in range(1, len(chain)):
-            dc = chain[r].occupancy - chain[r - 1].occupancy
-            du = cohort.dntcp(chain[r]) - cohort.dntcp(chain[r - 1])
+        kept[pid] = [chain[i] for i in idx]
+        for r in range(1, len(kept[pid])):
+            dc = kept[pid][r].occ_pt - kept[pid][r - 1].occ_pt
+            du = cohort.dntcp(kept[pid][r]) - cohort.dntcp(kept[pid][r - 1])
             ups.append(Upgrade(pid, r, dc, du, du / dc))
     return kept, ups
