@@ -155,7 +155,7 @@ def solve_dp(cohort, facility, res = RES):
     # dp[c] is the best objective over the patients processed so far, using at
     # most c units of capacity. Objective is -sum(ntcp_tot), maximised.
     dp = np.zeros(cap + 1)
-    back = np.zeros((len(pids), cap + 1), dtype = np.int16)
+    back = np.full((len(pids), cap + 1), -1, dtype = np.int16)
 
     for i, pid in enumerate(pids):
         new = np.full(cap + 1, -np.inf)
@@ -176,7 +176,10 @@ def solve_dp(cohort, facility, res = RES):
     c = cap
     for i in reversed(range(len(pids))):
         pid = pids[i]
-        s = opts[pid][back[i, c]]
+        j = back[i, c]
+        if j < 0:
+            raise RuntimeError(f"{pid}: backtracking entered an unreachable state")
+        s = opts[pid][j]
         choice[pid] = s
         c -= _units(s.occ_pt, res)
 
