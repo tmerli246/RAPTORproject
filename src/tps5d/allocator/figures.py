@@ -14,6 +14,7 @@ from tps5d.allocator.dominance import pareto, hull
 COLORS = {
     'P0': '#000000',
     'P1': '#E69F00',
+    'P1x': '#D55E00',
     'P2a': '#56B4E9',
     'P2b': '#009E73',
     'P3': '#0072B2',
@@ -100,7 +101,7 @@ def shadow_price(records, path = None, synthetic = True):
     """
     rs = sorted({r['dtau']: r for r in records}.values(), key=lambda r: r['dtau'])
     fig, ax = plt.subplots(figsize = (COL1, 58 * MM))
-    ax.plot([r['dtau'] for r in rs], [1e4 * r['lambda'] for r in rs],
+    ax.plot([r['dtau'] for r in rs], [1e4 * r['lambda_pt'] for r in rs],
             marker='o', color=COLORS['P3'])
     ax.set_xlabel(r'extra time per adapted fraction, $\Delta\tau$  (min)')
     ax.set_ylabel(r'$\lambda$  ($\Delta$NTCP % per 100 machine-min)')
@@ -120,6 +121,7 @@ def cohort_composition(records, policy = 'P3', path = None, synthetic = True):
     rs = sorted([r for r in records if r['policy'] == policy],
                 key=lambda r: r['dtau'])
     labels = sorted({k[2:] for r in rs for k in r if k.startswith('n_PT')} |
+                    {k[2:] for r in rs for k in r if k.startswith('n_XT')} |
                     {k[2:] for r in rs for k in r if k.startswith('n_photons')})
     labels = [l for l in labels if l]
     order = [l for l in labels if l == 'photons'] + \
@@ -153,8 +155,10 @@ def option_ladder(cohort, pid, path = None, synthetic = True):
     to climb to, and the slopes between consecutive surviving options are what
     the allocation compares across patients.
     """
-    opts = cohort.by_patient()[pid]
-    pts = [(s.occupancy, 100 * cohort.dntcp(s)) for s in opts]
+    # The proton chain: the ladder lives on the proton cost axis, and the
+    # photon-adapted options belong to the other chain.
+    opts = [s for s in cohort.by_patient()[pid] if s.tau_xt == 0.0]
+    pts = [(s.occ_pt, 100 * cohort.dntcp(s)) for s in opts]
     i_par, i_hull = pareto(pts), hull(pts)
 
     fig, ax = plt.subplots(figsize = (COL1, 62 * MM))
@@ -195,6 +199,32 @@ def option_ladder(cohort, pid, path = None, synthetic = True):
     ax.set_ylabel(r'$\Delta$NTCP against baseline  (%)')
     ax.grid(axis = 'y')
     ax.legend(loc = 'lower right')
+    _mark_synthetic(ax, synthetic)
+    fig.tight_layout()
+    return _save(fig, path)
+
+def budget_curves(records, path = None, synthetic = True):
+    """The two shadow prices along the normalised photon budget axis.
+
+    lambda_xt is reported as a curve because the budget has no measured anchor
+    (allocator design, Section 5.2); its endpoints are the reference study\'s
+    comparator and the free case. Where the ratio lambda_xt / lambda_pt
+    exceeds one, the next minute of photon adaptation capability buys more
+    cohort benefit than the next proton minute.
+    """
+    rs = sorted({r['cxt_frac']: r for r in records}.values(),
+                key = lambda r: r['cxt_frac'])
+    x = [r['cxt_frac'] for r in rs]
+
+    fig, ax = plt.subplots(figsize = (COL1, 62 * MM))
+    ax.plot(x, [1e4 * r['lambda_pt'] for r in rs], marker = 'o',
+            color = COLORS['P3'], label = r'$\lambda_{PT}$')
+    ax.plot(x, [1e4 * r['lambda_xt'] for r in rs], marker = 's',
+            color = COLORS['P1x'], label = r'$\lambda_{XT}$')
+    ax.set_xlabel(r'photon adaptation budget  (fraction of cohort demand)')
+    ax.set_ylabel(r'$\lambda$  ($\Delta$NTCP % per 100 min)')
+    ax.grid(axis = 'y')
+    ax.legend(loc = 'best')
     _mark_synthetic(ax, synthetic)
     fig.tight_layout()
     return _save(fig, path)
