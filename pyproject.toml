@@ -4,14 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tps5d"
-version = "0.1.0"
+version = "0.2.0"
 description = "5D-TPS: adaptation, fractionation and capacity-constrained allocation for adaptive proton therapy"
 requires-python = ">=3.10"
-dependencies = ["numpy", "scipy"]
+# scipy >= 1.9 for optimize.milp, the reference solver of the two-resource
+# allocation problem. matplotlib is required by allocator.figures.
+dependencies = ["numpy", "scipy>=1.9", "matplotlib"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["tests"]
