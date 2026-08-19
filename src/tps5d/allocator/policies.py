@@ -44,28 +44,41 @@ def _wrap(cohort, choice):
 def spend_photon_budget(cohort, choice, budget_xt):
     """Spend the photon adaptation budget on the patients not receiving protons.
 
-    The rule of Section 5.3: candidates are ranked by the delta NTCP of their
-    best photon-adapted option, and each is upgraded to the best such option
-    that fits, in decreasing order, until the budget is exhausted. Patients
-    already on protons are untouched. Returns the updated choice.
+    The rule of Section 5.3: candidates are ranked by the gain of their best
+    photon-adapted option over what they currently hold, and each is upgraded
+    to the best such option that fits, in decreasing order, until the budget is
+    exhausted. Patients already on protons are untouched. Returns the updated
+    choice.
+
+    Costs and gains are both incremental. A patient whose default arm is
+    already photon-adapted, which happens when its reference arm is
+    inadmissible, has those minutes counted against the budget before any
+    upgrade is considered, and pays only the difference to move up its chain.
+    Charging the full occupancy instead would spend the budget twice.
     """
+    left = budget_xt - sum(s.occ_xt for s in choice.values())
+
     cand = []
     for pid, opts in cohort.by_patient().items():
-        if choice[pid].modality == 'pt':
+        here = choice[pid]
+        if here.modality == 'pt':
             continue
-        xta = sorted((s for s in opts if s.occ_xt > 0 and cohort.dntcp(s) > 0),
+        xta = sorted((s for s in opts
+                      if s.occ_xt > 0 and cohort.dntcp(s) > cohort.dntcp(here)),
                      key = cohort.dntcp, reverse = True)
         if xta:
             cand.append((pid, xta))
 
-    cand.sort(key = lambda c: cohort.dntcp(c[1][0]), reverse = True)
+    cand.sort(key = lambda c: cohort.dntcp(c[1][0]) - cohort.dntcp(choice[c[0]]),
+              reverse = True)
 
-    left = budget_xt
     for pid, xta in cand:
+        here = choice[pid]
         for s in xta:
-            if s.occ_xt <= left + 1e-9:
+            dc = s.occ_xt - here.occ_xt
+            if dc <= left + 1e-9:
                 choice[pid] = s
-                left -= s.occ_xt
+                left -= dc
                 break
     return choice
 
@@ -75,8 +88,17 @@ def _refer(cohort, facility, pick, threshold = THRESHOLD):
     `pick` selects the proton strategy a referred patient would receive. This is
     the structure of both current practice and the reference study; they differ
     only in which strategy that is.
+
+    Patients who are not referred hold their default arm, not the reference
+    arm. The two coincide unless the coverage screen removed the reference
+    arm, in which case the patient holds the cheapest assignable option
+    instead. The referral threshold is still applied to delta NTCP against the
+    reference arm, since that is the published rule; a consequence is that a
+    patient whose default arm is worse than the reference is not referred on
+    that account alone. Whether the rule should be amended for such patients
+    is a clinical decision, not a coding one, and is left open.
     """
-    choice = dict(cohort.baseline())
+    choice = dict(cohort.default())
     cand = []
     for pid, opts in cohort.by_patient().items():
         pt = [s for s in opts if s.modality == 'pt']
@@ -85,13 +107,14 @@ def _refer(cohort, facility, pick, threshold = THRESHOLD):
 
     cand.sort(key = lambda c: cohort.dntcp(c[1]), reverse = True)
 
-    left = facility.budget_pt
+    left = facility.budget_pt - sum(s.occ_pt for s in choice.values())
     for pid, s in cand:
         if cohort.dntcp(s) < threshold:
             break
-        if s.occ_pt <= left + 1e-9:
+        dc = s.occ_pt - choice[pid].occ_pt
+        if dc <= left + 1e-9:
             choice[pid] = s
-            left -= s.occ_pt
+            left -= dc
     return _wrap(cohort, choice)
 
 def p0(cohort, facility, threshold = THRESHOLD):
@@ -123,18 +146,26 @@ def p2a(cohort, facility):
     ranks whole strategies rather than the upgrades between them, and every
     patient already holds a photon option at zero cost.
     """
-    choice = dict(cohort.baseline())
-    cand = [s for s in cohort.strategies if s.modality == 'pt' and s.occ_pt > 0]
+    choice = dict(cohort.default())
+
+    cand = []
+    for opts in cohort.by_patient().values():
+        cand += [s for s in opts if s.modality == 'pt' and s.occ_pt > 0]
     cand.sort(key = lambda s: cohort.dntcp(s) / s.occ_pt, reverse = True)
 
-    left, taken = facility.budget_pt, set()
+    left = facility.budget_pt - sum(s.occ_pt for s in choice.values())
+    taken = set()
     for s in cand:
-        if s.pid in taken or cohort.dntcp(s) <= 0:
+        # Both tests are against what the patient currently holds, which is the
+        # reference arm at zero cost and zero utility in the normal case.
+        here = choice[s.pid]
+        if s.pid in taken or cohort.dntcp(s) <= cohort.dntcp(here):
             continue
-        if s.occ_pt <= left + 1e-9:
+        dc = s.occ_pt - here.occ_pt
+        if dc <= left + 1e-9:
             choice[s.pid] = s
             taken.add(s.pid)
-            left -= s.occ_pt
+            left -= dc
     choice = spend_photon_budget(cohort, choice, facility.budget_xt)
     return _wrap(cohort, choice)
 

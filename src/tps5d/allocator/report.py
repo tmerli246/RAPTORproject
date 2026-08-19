@@ -40,8 +40,11 @@ def summarise(cohort, alloc, facility = None):
     without further shaping.
     """
     chosen = list(alloc.choice.values())
+    d = [cohort.dntcp(s) for s in chosen]
     rec = {
         'mean_dntcp': alloc.mean_dntcp,
+        'min_dntcp': min(d),
+        'n_dntcp_neg': sum(1 for v in d if v < 0.0),
         'n_patients': len(chosen),
         'n_pt': sum(1 for s in chosen if s.modality == 'pt'),
         'n_xt_adapted': sum(1 for s in chosen
@@ -67,6 +70,46 @@ def summarise(cohort, alloc, facility = None):
     for lab in sorted({arm_label(s) for s in chosen}):
         rec[f'n_{lab}'] = sum(1 for s in chosen if arm_label(s) == lab)
     return rec
+
+def admissibility_counts(cohort):
+    """What the coverage screen removed, and whether a free fallback survived.
+
+    Reported so that the option sets the allocator worked on are visible to a
+    reader who cannot inspect them. Three quantities are separated:
+
+        screened out          strategies the evaluator marked inadmissible.
+                              Coverage is the only screen that removes
+                              anything: no harm is a reported diagnostic and
+                              never touches the flag (allocator design,
+                              Section 8.3)
+        assignable and worse  assignable strategies whose delta NTCP is not
+                              positive. These are never selected while a free
+                              reference arm exists, so the count measures how
+                              often adaptation or a changed schedule fails to
+                              help, not how often it is chosen. This is the
+                              no-harm diagnostic. The reference arm itself is
+                              excluded, its zero being definitional rather
+                              than informative
+        no free option        patients whose reference arm is not assignable.
+                              Only these can be allocated a strategy worse
+                              than the reference
+
+    A cohort with no free-option violations makes the statement that no
+    patient is worse off than the reference true by construction. It is then
+    a property of the formulation and must be reported as such, not as a
+    finding.
+    """
+    out = {'n_patients': len(cohort.pids), 'n_options': 0,
+           'n_inadmissible': 0, 'n_dntcp_le0': 0}
+    for opts in cohort.all_by_patient().values():
+        out['n_options'] += len(opts)
+        out['n_inadmissible'] += sum(1 for s in opts if not s.admissible)
+        out['n_dntcp_le0'] += sum(1 for s in opts
+                                  if s.admissible and not s.baseline
+                                  and cohort.dntcp(s) <= 0.0)
+    out['n_no_free_option'] = len(cohort.no_free_option())
+    out['n_no_option'] = len(cohort.no_option())
+    return out
 
 def dominance_counts(cohort):
     """Options removed by each reduction, per patient and in total.
@@ -116,12 +159,15 @@ def sweep(make_cohort, facility, dtaus, policies):
         cohort = make_cohort(dt)
         lp = solve_lp(cohort, facility)
         _, dom = dominance_counts(cohort)
+        adm = admissibility_counts(cohort)
         for name, fn in policies.items():
             rec = {'dtau': dt, 'policy': name,
                    'lambda_pt': lp.lam_pt, 'lambda_xt': lp.lam_xt}
             rec.update(summarise(cohort, fn(cohort, facility), facility))
             rec.update({'n_lp_dominated': dom['n_lp'],
                         'n_pareto_dominated': dom['n_pareto']})
+            rec.update({k: adm[k] for k in
+                        ('n_inadmissible', 'n_dntcp_le0', 'n_no_free_option')})
             out.append(rec)
     return out
 

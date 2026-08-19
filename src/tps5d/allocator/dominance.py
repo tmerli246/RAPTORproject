@@ -18,6 +18,12 @@ argument is unchanged within a chain, and no hull is taken across chains.
 is what the greedy heuristics rank under the adopted convention. The photon
 chain is not ranked by any heuristic; policies spend the photon budget by a
 separate rule.
+
+The chains are built from assignable options only. Their first rung is the
+patient's cheapest such option, which is normally the reference arm at zero
+cost and zero utility. Where the reference arm is inadmissible the first rung
+can cost capacity and can carry negative utility, so nothing here may assume
+that a chain starts at the origin.
 """
 
 from collections import namedtuple
@@ -92,10 +98,21 @@ def chains(cohort):
     """Per-patient Pareto-reduced proton chains, in increasing proton cost.
 
     Used by the integer greedy, which must not see the hull reduction.
+
+    A patient with no assignable option on the proton cost axis, which
+    happens only when its reference arm is inadmissible and photon-adapted
+    options alone remain, is given the single-rung chain holding its default
+    arm. It then takes no part in the proton ranking, which is the honest
+    representation: the heuristics rank proton upgrades, and this patient has
+    none to rank.
     """
+    dflt = cohort.default()
     out = {}
     for pid, opts in cohort.by_patient().items():
         chain = _proton_chain(opts)
+        if not chain:
+            out[pid] = [dflt[pid]]
+            continue
         pts = [(s.occ_pt, cohort.dntcp(s)) for s in chain]
         out[pid] = [chain[i] for i in pareto(pts)]
     return out
@@ -108,9 +125,13 @@ def ladders(cohort):
     patients. Within a patient the efficiencies decrease by construction of the
     hull.
     """
+    dflt = cohort.default()
     kept, ups = {}, []
     for pid, opts in cohort.by_patient().items():
         chain = _proton_chain(opts)
+        if not chain:
+            kept[pid] = [dflt[pid]]
+            continue
         pts = [(s.occ_pt, cohort.dntcp(s)) for s in chain]
         idx = hull(pts)
         kept[pid] = [chain[i] for i in idx]

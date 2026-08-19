@@ -9,6 +9,17 @@ takes exactly one strategy, the baseline sum is a constant, so this is the same
 problem as maximising the sum of delta NTCP (test T5). Solving on absolute NTCP
 keeps the baseline out of the optimisation.
 
+No constraint of the form delta NTCP >= 0 is imposed, here or anywhere else.
+Where a patient has an assignable option that is free on both budgets and has
+zero utility, which is the reference arm in the normal case, that option
+dominates every option of negative utility: substituting it improves the
+objective and relaxes both capacity rows at once. The sign is therefore
+enforced by the structure of the option set rather than by a constraint, and
+adding the constraint explicitly would be redundant and would corrupt the
+reading of the duals by introducing rows whose multipliers mix into them.
+Where no such option exists, `Cohort.no_free_option` reports it and a negative
+delta NTCP in the optimum is the correct answer, not a defect.
+
 Solver structure, following open decision 15 of the allocator design:
 
     solve_exact      integer linear program (scipy HiGHS). The reference
@@ -48,7 +59,8 @@ def _columns(cohort):
     opts, cols = cohort.by_patient(), []
     for pid in cohort.pids:
         if not opts[pid]:
-            raise ValueError(f"{pid}: empty option set, no admissible strategy")
+            raise ValueError(f"{pid}: empty option set, every strategy failed "
+                             f"the admissibility screens")
         cols += [(pid, s) for s in opts[pid]]
     return cols
 
@@ -80,8 +92,12 @@ def _wrap_choice(cohort, choice):
 def solve_exact(cohort, facility):
     """Exact two-resource MCKP optimum, by integer linear programming.
 
-    Returns an Allocation. Feasibility is guaranteed by construction: the
-    baseline consumes neither budget, so every patient always has an option.
+    Returns an Allocation. Feasibility is guaranteed whenever every patient
+    has an assignable option that is free on both budgets, since the model can
+    then always fall back to it. That holds in the normal case, where the
+    reference arm is assignable. It does not hold once the coverage screen has
+    removed a patient's reference arm, so infeasibility is reported with the
+    patients responsible rather than as a bare solver message.
     """
     cols, c, a_ub, b_ub, a_eq, b_eq = _model(cohort, facility)
 
@@ -91,7 +107,9 @@ def solve_exact(cohort, facility):
                integrality = np.ones(len(cols)),
                bounds = Bounds(0, 1))
     if not res.success:
-        raise RuntimeError(f"milp failed: {res.message}")
+        raise RuntimeError(f"milp failed: {res.message}. "
+                           f"Patients without a free assignable option: "
+                           f"{cohort.no_free_option()}")
 
     choice = {}
     for (pid, s), x in zip(cols, res.x):
@@ -140,14 +158,14 @@ def solve_dp(cohort, facility, res = RES):
     Raises if any option consumes the photon adaptation budget; restrict the
     cohort to tau_xt == 0 first, which is exactly the C_XT = 0 problem.
     """
-    if any(s.tau_xt > 0.0 for s in cohort.strategies):
-        raise ValueError("solve_dp is single-resource; restrict to tau_xt == 0 "
-                         "or use solve_exact")
-
     opts = cohort.by_patient()
     for pid, o in opts.items():
         if not o:
-            raise ValueError(f"{pid}: empty option set, no admissible strategy")
+            raise ValueError(f"{pid}: empty option set, every strategy failed "
+                             f"the admissibility screens")
+        if any(s.tau_xt > 0.0 for s in o):
+            raise ValueError("solve_dp is single-resource; restrict to "
+                             "tau_xt == 0 or use solve_exact")
 
     cap = int(np.floor(facility.budget_pt / res + 1e-9))
     pids = cohort.pids
@@ -192,9 +210,14 @@ def solve_lp_greedy(cohort, facility):
     the proton chain excludes them.
 
     Every patient starts on its cheapest surviving option, which is normally
-    the photon strategy at zero proton cost. Capacity is then spent on the
+    the reference arm at zero proton cost. Capacity is then spent on the
     pooled upgrades in decreasing order of incremental efficiency. At most one
     upgrade is taken fractionally, and its efficiency is the shadow price.
+
+    The starting value is the sum of the utilities of those cheapest options,
+    which is zero in the normal case and can be negative where a reference arm
+    is inadmissible. The upgrades themselves are unaffected, since they are
+    differences.
     """
     kept, ups = ladders(cohort)
 
@@ -249,6 +272,10 @@ def solve_greedy(cohort, facility):
     Upgrades are not restricted to the next option up. On a non-concave chain
     the best available upgrade can skip several rungs, and a rank-by-rank scan
     in decreasing efficiency would never reach it.
+
+    The sign guard below is on the incremental utility, not on the level. An
+    upgrade must improve on what the patient currently holds; it need not
+    improve on the reference arm, which may itself be unavailable.
     """
     chain = chains(cohort)
 

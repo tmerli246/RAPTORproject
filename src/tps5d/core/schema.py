@@ -7,6 +7,22 @@ trivial derived quantities.
 Two resources are carried, following version 5 of the allocator design:
 proton machine time and photon adaptation time. No strategy consumes both,
 which is what makes a patient's option set two chains meeting at XT-NA.
+
+XT-NA carries two roles that are logically distinct and are kept apart here:
+
+    reference arm   the numeraire of delta NTCP. Fixed across every patient
+                    and every policy, so that the zero point never moves
+    default arm     what a patient receives when no capacity is spent on
+                    them. Must be assignable, and free on both budgets if
+                    the allocation is to be guaranteed no worse than the
+                    reference
+
+`baseline` marks the first role, `admissible` the second. They normally
+coincide. They separate when the coverage screen rejects a patient's
+non-adapted photon plan, which the evaluator may do on either modality
+(allocator design, Section 8.2): the arm remains the numeraire but stops
+being assignable, and an optimal allocation may then have to assign a
+strategy of negative delta NTCP.
 """
 
 from dataclasses import dataclass, field
@@ -26,7 +42,15 @@ class Strategy:
     ntcp      absolute NTCP per endpoint, {endpoint: probability}
     scheme    fractionation scheme label. 'std' is the standard schedule
     n_adapt   number of adapted blocks, carried for reporting
-    baseline  True for the locked reference strategy (XT-NA, standard schedule)
+    baseline  True for the locked reference strategy (XT-NA, standard
+              schedule). Defines the zero of delta NTCP whether or not the
+              strategy is assignable
+    admissible True if the strategy passed the coverage screen and may
+              therefore be assigned. Coverage is the only screen that sets
+              this: no harm is reported rather than enforced, so strategies
+              of negative utility stay in the option set and are declined by
+              dominance (allocator design, Section 8.3). The reference arm
+              can be inadmissible: it keeps its role as numeraire either way
     """
 
     pid: str
@@ -39,6 +63,7 @@ class Strategy:
     scheme: str = 'std'
     n_adapt: int = 0
     baseline: bool = False
+    admissible: bool = True
 
     def __post_init__(self):
         if self.modality not in ('pt', 'xt'):
@@ -103,7 +128,7 @@ class Cohort:
 
     def __post_init__(self):
         self._base = {}
-        for pid, opts in self.by_patient().items():
+        for pid, opts in self.all_by_patient().items():
             base = [s for s in opts if s.baseline]
             if len(base) != 1:
                 raise ValueError(f"{pid}: expected exactly one baseline strategy, found {len(base)}")
@@ -117,21 +142,88 @@ class Cohort:
                 seen.append(s.pid)
         return seen
 
-    def by_patient(self):
-        """Option sets keyed by patient, preserving insertion order."""
+    def all_by_patient(self):
+        """Every strategy keyed by patient, admissible or not.
+
+        For diagnostics and for locating the reference arm. Solvers and
+        policies must use `by_patient`, which excludes what the evaluator
+        screened out.
+        """
         out = {}
         for s in self.strategies:
             out.setdefault(s.pid, []).append(s)
         return out
 
-    def baseline(self):
-        """The locked reference strategy per patient.
+    def by_patient(self):
+        """Assignable option sets keyed by patient, preserving insertion order.
 
-        The baseline retains this role regardless of its own admissibility as
-        an assignable option: every delta NTCP in the study is referenced to
-        the same arm on every patient (evaluator design, Section 6.3).
+        A patient whose every strategy was screened out keeps its key with an
+        empty list, so that the condition surfaces where it matters rather
+        than the patient disappearing from the problem.
+        """
+        out = {}
+        for pid, opts in self.all_by_patient().items():
+            out[pid] = [s for s in opts if s.admissible]
+        return out
+
+    def baseline(self):
+        """The reference strategy per patient, the numeraire of delta NTCP.
+
+        The reference arm retains this role regardless of its own
+        admissibility as an assignable option: every delta NTCP in the study
+        is referenced to the same arm on every patient (evaluator design,
+        Section 6.3). Use `default` for the arm a patient actually receives
+        when no capacity is spent on them.
         """
         return self._base
+
+    def default(self):
+        """The arm a patient receives when no capacity is spent on them.
+
+        The cheapest assignable option on the two budgets, ties broken on
+        utility. Normally this is the reference arm, which is free on both
+        budgets and has delta NTCP identically zero. Where the reference arm
+        is inadmissible the default is whatever remains cheapest, which may
+        consume capacity and may carry a negative delta NTCP.
+
+        Raises if a patient has no assignable option.
+        """
+        out = {}
+        for pid, opts in self.by_patient().items():
+            if not opts:
+                raise ValueError(f"{pid}: no admissible strategy")
+            out[pid] = min(opts, key = lambda s: (s.occ_pt, s.occ_xt, -self.dntcp(s)))
+        return out
+
+    def no_option(self):
+        """Patients with no assignable option at all.
+
+        The multiple-choice constraint cannot be satisfied for these patients
+        at any capacity, so the problem is infeasible (allocator design,
+        Section 8.4).
+        """
+        return [pid for pid, opts in self.by_patient().items() if not opts]
+
+    def no_free_option(self):
+        """Patients with no assignable option that is free on both budgets.
+
+        This list being empty is what guarantees that no allocation makes a
+        patient worse than the reference arm: the reference arm is then
+        always available at no cost, and it dominates every option of
+        negative utility, on both the linear and the integer problem. No
+        sign constraint is imposed anywhere, and none is needed.
+
+        Where the list is not empty, an optimal allocation may assign a
+        strategy of negative delta NTCP to those patients. That is the
+        correct answer to the question of what to do with a patient who must
+        be treated and whose reference plan is not deliverable, not a defect
+        of the solver.
+        """
+        out = []
+        for pid, opts in self.by_patient().items():
+            if not any(s.occ_pt == 0.0 and s.occ_xt == 0.0 for s in opts):
+                out.append(pid)
+        return out
 
     def dntcp(self, s):
         """Utility of a strategy: reduction in union NTCP against the baseline."""
@@ -142,18 +234,28 @@ class Cohort:
         constraint cannot bind. Normalises the C_XT sweep axis (T9 is 1)."""
         out = 0.0
         for opts in self.by_patient().values():
-            out += max(s.occ_xt for s in opts)
+            out += max((s.occ_xt for s in opts), default = 0.0)
         return out
 
     def restrict(self, keep):
         """Sub-cohort holding only the strategies satisfying `keep`.
 
-        The baseline is always retained, so every patient keeps at least one
-        option and the multiple-choice constraint stays satisfiable. Policies
-        use this to express the workflows they are allowed to consider.
+        The reference arm is always retained, since it defines the zero of
+        delta NTCP whether or not it is assignable. Where the filter would
+        leave a patient with no assignable option, that patient's default arm
+        is retained as well, so the multiple-choice constraint stays
+        satisfiable and every policy remains defined on every patient.
+        Policies use this to express the workflows they are allowed to
+        consider.
         """
         opts = [s for s in self.strategies if s.baseline or keep(s)]
-        return Cohort(opts)
+        sub = Cohort(opts)
+
+        missing = sub.no_option()
+        if not missing:
+            return sub
+        dflt = self.default()
+        return Cohort(opts + [dflt[pid] for pid in missing])
 
 @dataclass
 class Allocation:
