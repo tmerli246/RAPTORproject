@@ -19,7 +19,7 @@ import pytest
 from tps5d.core.schema import Facility, Strategy, Cohort
 from tps5d.allocator.solve import solve_exact, solve_lp, solve_dp, solve_lp_greedy
 
-from synth import ladder_cohort
+from tps5d.generator.synth import ladder_cohort
 
 def two_chain(n = 8, seed = 0, **kw):
     kw.setdefault('x_gain', 0.02)

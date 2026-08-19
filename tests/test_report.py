@@ -11,7 +11,7 @@ from tps5d.allocator.report import (
     arm_label, summarise, dominance_counts, sweep, sweep_budget_xt, to_csv,
 )
 
-from synth import ladder_cohort, villarroel_cohort
+from tps5d.generator.synth import ladder_cohort, villarroel_cohort
 
 FAC = Facility(480.0, days = 12)
 

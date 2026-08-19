@@ -11,7 +11,7 @@ import pytest
 from tps5d.core.schema import Facility
 from tps5d.allocator.solve import solve_exact
 
-from synth import villarroel_cohort
+from tps5d.generator.synth import villarroel_cohort
 
 # The reference study: 480 min/day, 14 patients, 34.2 min baseline session, and
 # the extra minutes per adapted fraction that define scenarios S1 to S6.

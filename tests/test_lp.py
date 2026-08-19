@@ -18,7 +18,7 @@ from tps5d.core.schema import Facility
 from tps5d.allocator.solve import solve_exact, solve_lp, solve_lp_greedy, solve_greedy
 from tps5d.allocator.dominance import hull
 
-from synth import villarroel_cohort, ladder_cohort
+from tps5d.generator.synth import villarroel_cohort, ladder_cohort
 
 COHORTS = [
     ('reference', lambda: villarroel_cohort(14, extra = 9.3), Facility(480.0)),

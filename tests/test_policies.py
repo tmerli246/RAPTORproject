@@ -13,7 +13,7 @@ import pytest
 from tps5d.core.schema import Facility
 from tps5d.allocator.policies import POLICIES, compare
 
-from synth import villarroel_cohort, ladder_cohort
+from tps5d.generator.synth import villarroel_cohort, ladder_cohort
 
 COHORTS = [
     ('reference', lambda: villarroel_cohort(14, extra = 9.3), Facility(480.0)),

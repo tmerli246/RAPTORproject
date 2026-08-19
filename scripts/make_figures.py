@@ -6,14 +6,12 @@ When runs on a synthetic cohort, every figure carries the synthetic marker.
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tests'))
-
 from tps5d.core.schema import Facility
 from tps5d.allocator.policies import POLICIES
 from tps5d.allocator import figures as fg
 from tps5d.allocator.report import sweep, sweep_budget_xt, to_csv, dominance_counts
 
-from synth import ladder_cohort
+from tps5d.generator.synth import ladder_cohort
 
 DTAUS = [2.4, 5.7, 9.3, 13.7, 19.0, 25.7]
 FACILITY = Facility(480.0, days = 12)
