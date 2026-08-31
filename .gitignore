@@ -1,6 +1,7 @@
-# General
+# Build and cache
 __pycache__/
 *.pyc
+*.py[cod]
 *.egg-info/
 build/
 dist/
@@ -10,6 +11,7 @@ dist/
 data/
 
 # Clinical data and derived arrays
+data/
 *.dcm
 *.DCM
 *.nii
@@ -23,10 +25,14 @@ data/
 *.hdf5
 *.pkl
 
-# Outputs
-figures*/
-# *.csv
-# !tests/**/*.csv
-
 # Notebooks
 .ipynb_checkpoints/
+
+# Generated Word versions of the design documents
+docs/*.docx
+!docs/ref.docx
+
+# Outputs
+figures*/
+*.csv
+# !tests/**/*.csv
