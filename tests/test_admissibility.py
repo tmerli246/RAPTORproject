@@ -24,7 +24,8 @@ from tps5d.allocator.dominance import chains, ladders, pareto
 from tps5d.allocator.solve import solve_exact, solve_lp, solve_dp, solve_greedy
 from tps5d.allocator.policies import POLICIES, compare
 from tps5d.allocator.report import admissibility_counts, summarise
-from tps5d.generator.synth import villarroel_cohort, ladder_cohort
+from tps5d.generator.synth import (villarroel_cohort, arm_cohort,
+                                   two_scheme_cohort)
 
 BASE = 0.30
 
@@ -44,7 +45,7 @@ def harm_cohort(n = 6, seed = 0):
         out.append(Strategy(pid, 'xt', 'xt', n_fx = 1, tau_pt = 0.0,
                             ntcp = {'tot': BASE}, baseline = True))
         out.append(Strategy(pid, 'pt', 'pt', n_fx = 1, tau_pt = 30.0,
-                            ntcp = {'tot': BASE - d[i]}, n_adapt = 1))
+                            ntcp = {'tot': BASE - d[i]}, adapted = True))
     return Cohort(out), d
 
 def stranded_cohort(tau_pt = 30.0, harm = 0.05):
@@ -58,11 +59,11 @@ def stranded_cohort(tau_pt = 30.0, harm = 0.05):
         Strategy('p00', 'xt', 'xt', n_fx = 1, tau_pt = 0.0,
                  ntcp = {'tot': BASE}, baseline = True),
         Strategy('p00', 'pt', 'pt', n_fx = 1, tau_pt = tau_pt,
-                 ntcp = {'tot': BASE - 0.10}, n_adapt = 1),
+                 ntcp = {'tot': BASE - 0.10}, adapted = True),
         Strategy('p01', 'xt', 'xt', n_fx = 1, tau_pt = 0.0,
                  ntcp = {'tot': BASE}, baseline = True, admissible = False),
         Strategy('p01', 'pt', 'pt', n_fx = 1, tau_pt = tau_pt,
-                 ntcp = {'tot': BASE + harm}, n_adapt = 1),
+                 ntcp = {'tot': BASE + harm}, adapted = True),
     ]
     return Cohort(out)
 
@@ -76,14 +77,17 @@ def photon_default_cohort(dtau_xt = 4.0):
         Strategy('p00', 'xt', 'xt', n_fx = 10, tau_pt = 0.0,
                  ntcp = {'tot': BASE}, baseline = True),
         Strategy('p00', 'pt', 'pt', n_fx = 10, tau_pt = 30.0,
-                 ntcp = {'tot': BASE - 0.10}, n_adapt = 1),
+                 ntcp = {'tot': BASE - 0.10}, adapted = True),
         Strategy('p01', 'xt', 'xt', n_fx = 10, tau_pt = 0.0,
                  ntcp = {'tot': BASE}, baseline = True, admissible = False),
+        # Two adapted photon options, differing by fractionation scheme rather
+        # than by adaptation count: at version 6 that is the only way a photon
+        # chain can hold two rungs. xt1 is the cheaper and xt2 buys more.
         Strategy('p01', 'xt1', 'xt', n_fx = 10, tau_pt = 0.0, tau_xt = dtau_xt,
-                 ntcp = {'tot': BASE - 0.01}, n_adapt = 1),
-        Strategy('p01', 'xt2', 'xt', n_fx = 10, tau_pt = 0.0,
-                 tau_xt = 2 * dtau_xt,
-                 ntcp = {'tot': BASE - 0.03}, n_adapt = 2),
+                 ntcp = {'tot': BASE - 0.01}, adapted = True),
+        Strategy('p01', 'xt2', 'xt', n_fx = 5, tau_pt = 0.0,
+                 tau_xt = 3 * dtau_xt, scheme = 'hyp',
+                 ntcp = {'tot': BASE - 0.03}, adapted = True),
     ]
     return Cohort(out)
 
@@ -180,7 +184,7 @@ def test_stranded_cohort_is_infeasible_without_capacity():
         solve_exact(cohort, fac)
 
 def test_no_free_option_is_empty_for_an_ordinary_cohort():
-    cohort = ladder_cohort(n = 5, x_gain = 0.02, dtau_xt = 3.0)
+    cohort = arm_cohort(n = 5, x_gain = 0.02, dtau_xt = 3.0)
     assert cohort.no_free_option() == []
     assert cohort.no_option() == []
 
@@ -262,7 +266,7 @@ def test_summarise_reports_the_sign_of_the_assignment():
     assert rec['min_dntcp'] == pytest.approx(-0.05)
 
 def test_ordinary_cohort_reports_no_violations():
-    cohort = ladder_cohort(n = 6)
+    cohort = arm_cohort(n = 6)
     fac = Facility(cap_pt_min_day = 300.0, days = 30)
     rec = summarise(cohort, solve_exact(cohort, fac), fac)
     assert rec['n_dntcp_neg'] == 0
@@ -271,14 +275,15 @@ def test_ordinary_cohort_reports_no_violations():
 # Backward compatibility: the all-admissible case is unchanged
 
 def test_all_admissible_cohort_matches_the_dynamic_program():
-    cohort = ladder_cohort(n = 6, n_block = 3, shape = 'convex')
+    cohort = two_scheme_cohort(n = 6, shape = 'nonconcave')
     fac = Facility(cap_pt_min_day = 400.0, days = 30)
     a = solve_exact(cohort, fac)
     b = solve_dp(cohort, fac)
     assert a.mean_dntcp == pytest.approx(b.mean_dntcp, abs = 1e-9)
 
 def test_policy_ordering_is_preserved():
-    cohort = ladder_cohort(n = 8, n_block = 3, x_gain = 0.02, dtau_xt = 3.0)
+    cohort = two_scheme_cohort(n = 8, shape = 'nonconcave', x_gain = 0.02,
+                               dtau_xt = 3.0)
     fac = Facility(cap_pt_min_day = 400.0, cap_xt_min_day = 200.0, days = 30)
     out = compare(cohort, fac)
     assert out['P0'].mean_dntcp <= out['P3'].mean_dntcp + 1e-9

@@ -13,16 +13,23 @@ import pytest
 from tps5d.core.schema import Facility
 from tps5d.allocator.policies import POLICIES, compare
 
-from tps5d.generator.synth import villarroel_cohort, ladder_cohort
+from tps5d.generator.synth import (villarroel_cohort, arm_cohort,
+                                   two_scheme_cohort)
 
 COHORTS = [
     ('reference', lambda: villarroel_cohort(14, extra = 9.3), Facility(480.0)),
-    ('concave', lambda: ladder_cohort(8, shape = 'concave'), Facility(480.0, days = 12)),
-    ('linear', lambda: ladder_cohort(8, shape = 'linear'), Facility(480.0, days = 12)),
-    ('convex', lambda: ladder_cohort(8, shape = 'convex'), Facility(480.0, days = 12)),
-    ('two-chain', lambda: ladder_cohort(8, x_gain = 0.02, dtau_xt = 16.0),
+    ('one scheme', lambda: arm_cohort(8), Facility(480.0, days = 12)),
+    ('one scheme, dtau above threshold',
+     lambda: arm_cohort(8, dtau = 60.0), Facility(480.0, days = 12)),
+    ('two schemes, both on the hull',
+     lambda: two_scheme_cohort(8, shape = 'both_schemes'), Facility(480.0, days = 12)),
+    ('two schemes, non-concave',
+     lambda: two_scheme_cohort(8, shape = 'nonconcave'), Facility(480.0, days = 12)),
+    ('two schemes, hypofractionation dominant',
+     lambda: two_scheme_cohort(8, shape = 'hyp_dominant'), Facility(480.0, days = 12)),
+    ('two-chain', lambda: arm_cohort(8, x_gain = 0.02, dtau_xt = 16.0),
      Facility(480.0, 40.0, days = 12)),
-    ('two-chain tight', lambda: ladder_cohort(8, x_gain = 0.03, dtau_xt = 16.0),
+    ('two-chain tight', lambda: arm_cohort(8, x_gain = 0.03, dtau_xt = 16.0),
      Facility(240.0, 10.0, days = 12)),
 ]
 
@@ -53,26 +60,34 @@ def test_no_policy_harms_the_cohort(name, make, fac):
     for pol, alloc in compare(cohort, fac).items():
         assert alloc.mean_dntcp >= -1e-12, pol
 
-def test_p0_uses_no_adaptation():
-    cohort = ladder_cohort(8)
+def test_p0_uses_no_adaptation_and_the_standard_schedule():
+    cohort = two_scheme_cohort(8)
     alloc = POLICIES['P0'](cohort, Facility(480.0, days = 12))
-    assert all(s.n_adapt == 0 for s in alloc.choice.values())
+    assert all(not s.adapted for s in alloc.choice.values())
+    assert all(s.scheme == 'std' for s in alloc.choice.values())
 
 def test_p1_adapts_every_proton_patient():
-    cohort = ladder_cohort(8, n_block = 2)
+    cohort = arm_cohort(8)
     alloc = POLICIES['P1'](cohort, Facility(480.0, days = 12))
     pt = [s for s in alloc.choice.values() if s.modality == 'pt']
-    assert pt and all(s.n_adapt == 2 for s in pt)
+    assert pt and all(s.adapted for s in pt)
+
+def test_p1_keeps_the_standard_schedule():
+    """P1 is the reference-study world, which has one schedule. The
+    hypofractionated arms must not be reachable however large the budget."""
+    cohort = two_scheme_cohort(8)
+    alloc = POLICIES['P1'](cohort, Facility(1e6, days = 12))
+    assert all(s.scheme == 'std' for s in alloc.choice.values())
 
 def test_p1_spends_no_photon_budget():
     """P1 is the reference-study world: the adapted photon arm does not exist
     there, however large the budget."""
-    cohort = ladder_cohort(8, x_gain = 0.02, dtau_xt = 16.0)
+    cohort = arm_cohort(8, x_gain = 0.02, dtau_xt = 16.0)
     alloc = POLICIES['P1'](cohort, Facility(240.0, 1e6, days = 12))
     assert alloc.used_xt == 0.0
 
 def test_p1x_reduces_to_p1_at_zero_photon_budget():
-    cohort = ladder_cohort(8, x_gain = 0.02, dtau_xt = 16.0)
+    cohort = arm_cohort(8, x_gain = 0.02, dtau_xt = 16.0)
     fac = Facility(240.0, 0.0, days = 12)
     a1 = POLICIES['P1'](cohort, fac)
     a1x = POLICIES['P1x'](cohort, fac)
@@ -82,7 +97,7 @@ def test_p1x_reduces_to_p1_at_zero_photon_budget():
 def test_p1x_adapts_displaced_patients_in_benefit_order():
     """With budget for exactly one full photon adaptation, the displaced
     patient with the largest photon benefit receives it."""
-    cohort = ladder_cohort(8, x_gain = 0.02, dtau_xt = 16.0, n_fx = 30)
+    cohort = arm_cohort(8, x_gain = 0.02, dtau_xt = 16.0, n_fx = 30)
     fac_pt = Facility(240.0, days = 12)
     a1 = POLICIES['P1'](cohort, fac_pt)
     displaced = [p for p, s in a1.choice.items() if s.modality == 'xt']
@@ -95,4 +110,4 @@ def test_p1x_adapts_displaced_patients_in_benefit_order():
 
     one = 30 * 16.0                              # one fully adapted course
     a1x = POLICIES['P1x'](cohort, Facility(240.0, one / 12, days = 12))
-    assert a1x.choice[top].modality == 'xt' and a1x.choice[top].n_adapt > 0
+    assert a1x.choice[top].modality == 'xt' and a1x.choice[top].adapted

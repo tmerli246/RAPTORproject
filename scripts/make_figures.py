@@ -11,7 +11,7 @@ from tps5d.allocator.policies import POLICIES
 from tps5d.allocator import figures as fg
 from tps5d.allocator.report import sweep, sweep_budget_xt, to_csv, dominance_counts
 
-from tps5d.generator.synth import ladder_cohort
+from tps5d.generator.synth import two_scheme_cohort
 
 DTAUS = [2.4, 5.7, 9.3, 13.7, 19.0, 25.7]
 FACILITY = Facility(480.0, days = 12)
@@ -24,8 +24,8 @@ def main(outdir = 'figures'):
     fg.use_style()
 
     # Adaptation time changes occupancy, so the cohort is rebuilt at each point.
-    make = lambda dt: ladder_cohort(n = 10, n_block = 2, dtau = dt, shape = 'concave',
-                                    x_gain = 0.02, dtau_xt = 16.0, seed = 3)
+    make = lambda dt: two_scheme_cohort(n = 10, dtau = dt, shape = 'both_schemes',
+                                        x_gain = 0.02, dtau_xt = 16.0, seed = 3)
 
     records = sweep(make, FACILITY, DTAUS, POLICIES)
     to_csv(records, out / 'policy_sweep.csv')

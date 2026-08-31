@@ -3,15 +3,16 @@
 The step-ratio threshold of the allocator document holds at a fixed
 fractionation scheme: it compares photons, non-adapted protons and adapted
 protons at one fraction count, which is why the fraction count cancels. With
-two schemes in the strategy space a patient's options are no longer a chain
-ordered by adaptation count but a family over (scheme, adaptation count), and
-no single scalar summarises the shape of its upper hull.
+two schemes in the strategy space a patient's options are no longer a single
+chain but a family over (scheme, adaptation), and no single scalar summarises
+the shape of its upper hull.
 
-This script asks a structural question: given a ratio of costs and 
-benefits between the two schemes, which (scheme, adaptation count) pairs 
-can survive the hull at all? Options below the hull are never selected by
-the relaxation at any capacity, so a pair that never survives is one the design
-need not carry.
+At version 6 adaptation is a binary property of the arm, so the family has four
+proton members rather than 2(B + 1): non-adapted and adapted under each scheme.
+This script asks a structural question: given a ratio of costs and benefits
+between the two schemes, which (scheme, adaptation) pairs can survive the hull
+at all? Options below the hull are never selected by the relaxation at any
+capacity, so a pair that never survives is one the design need not carry.
 The benefits here are parameters, chosen to span plausible ranges rather than
 measured. The output is a map of reachable configurations against the two
 quantities the study will measure.
@@ -25,7 +26,6 @@ from tps5d.allocator.dominance import hull
 TAU0 = 34.2          # min per fraction, non-adapted session
 N_STD = 28           # fractions, standard schedule
 N_HYP = 5            # fractions, hypofractionated schedule
-B = 2                # adaptation blocks
 
 # Delivery time per fraction is longer under hypofractionation, through higher
 # MU, but sub-linearly in dose per fraction: a fivefold dose per fraction does
@@ -40,10 +40,7 @@ M_STD = 6.9
 # licenses, on the standard schedule.
 A_STD = 3.8
 
-# Concavity of the adaptation benefit in the block count: a(k) = a (k/B)^P.
-P = 1.0
-
-def ladder(dtau, pen, a_mult, tau_mult = TAU_MULT, p = P, b = B):
+def ladder(dtau, pen, a_mult, tau_mult = TAU_MULT):
     """Option points for one patient across both schemes.
 
     dtau     extra minutes per adapted fraction
@@ -60,9 +57,8 @@ def ladder(dtau, pen, a_mult, tau_mult = TAU_MULT, p = P, b = B):
     arms = (('std', N_STD, TAU0, M_STD, A_STD),
             ('hyp', N_HYP, TAU0 * tau_mult, M_STD - pen, A_STD * a_mult))
     for tag, n_fx, tau0, m, a in arms:
-        for k in range(b + 1):
-            cost = n_fx * (tau0 + (k / b) * dtau)
-            pts.append((f'{tag}{k}', cost, m + a * (k / b) ** p))
+        pts.append((f'{tag}NA', n_fx * tau0, m))
+        pts.append((f'{tag}A', n_fx * (tau0 + dtau), m + a))
     return pts
 
 def survivors(pts):
@@ -71,20 +67,25 @@ def survivors(pts):
     return [pts[i][0] for i in idx]
 
 def classify(labels):
-    """Short description of the surviving configuration."""
+    """Short description of the surviving configuration.
+
+    Adaptation is binary at version 6, so the question is no longer whether
+    intermediate counts survive but whether the non-adapted arm of a scheme
+    survives alongside its adapted one. A scheme whose non-adapted arm is
+    always below the hull is one for which the study can only report the
+    adapted workflow.
+    """
     arms = {l[:3] for l in labels if l != 'xt'}
-    counts = {l[3:] for l in labels if l != 'xt'}
     if not arms:
         return 'photons only'
+    na = {l[:3] for l in labels if l.endswith('NA')}
     both = 'std' in arms and 'hyp' in arms
-    partial = any(c not in ('', str(B)) for c in counts)
-    if both and partial:
-        return 'both schemes, partial adaptation live'
     if both:
-        return 'both schemes, all-or-nothing'
-    if partial:
-        return f'{arms.pop()} only, partial adaptation live'
-    return f'{arms.pop()} only, all-or-nothing'
+        live = ",".join(sorted(na))
+        return f'both schemes, non-adapted live: {live}' if live \
+               else 'both schemes, adapted only'
+    one = arms.pop()
+    return f'{one} only, non-adapted live' if one in na else f'{one} only, adapted only'
 
 if __name__ == '__main__':
     print(__doc__.split('Run:')[0].strip()[:0] or '', end = '')
@@ -122,12 +123,29 @@ if __name__ == '__main__':
         cells = [",".join(survivors(ladder(dt, 4.0, a_mult = am))) for dt in dtaus]
         print(f"{am:7.1f} " + " ".join(f"{c:>26}" for c in cells))
 
-    print("\nPenalty at which the standard schedule re-enters the hull, by dtau")
-    for dt in dtaus:
-        found = None
-        for pen in np.arange(0.0, 7.0, 0.05):
-            if any(l.startswith('std') for l in survivors(ladder(dt, pen, 1.0))):
-                found = pen
-                break
-        print(f"  dtau {dt:5.1f}   pen* = "
-              + (f"{found:.2f}" if found is not None else "not within 7.0"))
+    print("\nPenalty at which the standard adapted arm re-enters the hull")
+    print("At a_mult = 1 the two adapted arms differ only by pen, so at pen = 0")
+    print("they carry equal utility and the cheaper one wins on a tie. The")
+    print("threshold there is exactly zero and carries no information; the")
+    print("informative sweep is over a_mult, where the hypofractionated arm")
+    print("buys strictly more.")
+    print(f"\n{'a_mult':>8}" + "".join(f"{'dtau ' + str(d):>16}" for d in dtaus))
+    print("  " + "-" * (8 + 16 * len(dtaus)))
+    for am in (1.0, 1.3, 1.6, 2.0):
+        row = f"{am:8.1f}"
+        for dt in dtaus:
+            has = lambda p: any(l.startswith('std')
+                                for l in survivors(ladder(dt, p, am)))
+            if has(0.0):
+                row += f"{'0 (unpenalised)':>16}"
+            elif not has(9.0):
+                row += f"{'> 9.0':>16}"
+            else:
+                lo, hi = 0.0, 9.0
+                for _ in range(40):
+                    mid = 0.5 * (lo + hi)
+                    lo, hi = (lo, mid) if has(mid) else (mid, hi)
+                row += (f"{'0+':>16}" if hi < 1e-6 else f"{hi:16.2f}")
+        print(row)
+    print("\n0+ means any strictly positive penalty suffices: the arms are tied")
+    print("at pen = 0 and the cheaper one is kept only by the tie-break.")

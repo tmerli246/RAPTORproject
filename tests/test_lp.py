@@ -9,6 +9,14 @@ The LP optimum is computed independently with the greedy solver so that the
 duals of solve_lp are not checked against themselves; conversely T2 checks the
 greedy against solve_lp. The cohorts here are single-resource, which is the
 regime the greedy is retained for.
+
+At version 6 a patient's proton chain holds two arms per fractionation scheme
+rather than a ladder of adaptation counts, so a non-concave benefit profile can
+no longer arise from curvature in the count. It arises instead from where the
+hypofractionated arms fall relative to the standard ones, which is what the
+two_scheme_cohort shapes control. The greedy must attain the LP optimum on all
+of them, since the hull reduction is what makes the ordering valid and that
+argument is indifferent to how the points were generated.
 """
 
 import numpy as np
@@ -18,13 +26,20 @@ from tps5d.core.schema import Facility
 from tps5d.allocator.solve import solve_exact, solve_lp, solve_lp_greedy, solve_greedy
 from tps5d.allocator.dominance import hull
 
-from tps5d.generator.synth import villarroel_cohort, ladder_cohort
+from tps5d.generator.synth import (villarroel_cohort, arm_cohort,
+                                   two_scheme_cohort)
 
 COHORTS = [
     ('reference', lambda: villarroel_cohort(14, extra = 9.3), Facility(480.0)),
-    ('concave', lambda: ladder_cohort(8, shape = 'concave'), Facility(480.0, days = 14)),
-    ('linear', lambda: ladder_cohort(8, shape = 'linear'), Facility(480.0, days = 14)),
-    ('convex', lambda: ladder_cohort(8, shape = 'convex'), Facility(480.0, days = 14)),
+    ('one scheme', lambda: arm_cohort(8), Facility(480.0, days = 14)),
+    ('one scheme, dtau above threshold',
+     lambda: arm_cohort(8, dtau = 60.0), Facility(480.0, days = 14)),
+    ('two schemes, both on the hull',
+     lambda: two_scheme_cohort(8, shape = 'both_schemes'), Facility(480.0, days = 14)),
+    ('two schemes, non-concave',
+     lambda: two_scheme_cohort(8, shape = 'nonconcave'), Facility(480.0, days = 14)),
+    ('two schemes, hypofractionation dominant',
+     lambda: two_scheme_cohort(8, shape = 'hyp_dominant'), Facility(480.0, days = 14)),
 ]
 
 @pytest.mark.parametrize('name, make, fac', COHORTS)

@@ -19,12 +19,12 @@ import pytest
 from tps5d.core.schema import Facility, Strategy, Cohort
 from tps5d.allocator.solve import solve_exact, solve_lp, solve_dp, solve_lp_greedy
 
-from tps5d.generator.synth import ladder_cohort
+from tps5d.generator.synth import arm_cohort
 
 def two_chain(n = 8, seed = 0, **kw):
     kw.setdefault('x_gain', 0.02)
     kw.setdefault('dtau_xt', 16.0)
-    return ladder_cohort(n, seed = seed, **kw)
+    return arm_cohort(n, seed = seed, **kw)
 
 FACS = [
     ('interior', Facility(240.0, 30.0, days = 12)),
@@ -83,7 +83,7 @@ def test_t9_saturated_photon_budget():
     ex = solve_exact(cohort, fac)
     for s in ex.choice.values():
         if s.modality == 'xt':
-            assert s.n_adapt > 0
+            assert s.adapted
 
 def test_t10_swapping_the_resources_mirrors_the_problem():
     """Relabel every strategy's costs onto the other axis and swap the budgets:
@@ -96,7 +96,7 @@ def test_t10_swapping_the_resources_mirrors_the_problem():
         return Strategy(s.pid, s.sid, modality, s.n_fx,
                         tau_pt = s.tau_xt, tau_xt = s.tau_pt,
                         ntcp = dict(s.ntcp), scheme = s.scheme,
-                        n_adapt = s.n_adapt, baseline = s.baseline)
+                        adapted = s.adapted, baseline = s.baseline)
 
     mirrored = Cohort([flip(s) for s in cohort.strategies])
     swapped = Facility(fac.cap_xt_min_day, fac.cap_pt_min_day, fac.days)

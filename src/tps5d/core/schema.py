@@ -4,11 +4,19 @@ The evaluator emits Strategy records, the allocator consumes them, and the
 synthetic generator imitates them. Nothing here computes anything beyond
 trivial derived quantities.
 
-Two resources are carried, following version 5 of the allocator design:
+Two resources are carried, following version 6 of the allocator design:
 proton machine time and photon adaptation time. No strategy consumes both,
 which is what makes a patient's option set two chains meeting at XT-NA.
 
-XT-NA carries two roles that are logically distinct and are kept apart here:
+Modality, adaptation and fractionation are chosen once, at prescription. All
+three are scalar fields of this record, so a course that changes any of them
+part-way is not representable rather than merely disallowed. A patient holds
+four strategies per fractionation scheme and eight over two schemes,
+independently of the number of blocks (allocator design, Section 5.1).
+
+XT-NA is free on both budgets under either fractionation scheme, so a patient
+may hold two zero-cost options rather than one (A27). It carries two roles that
+are logically distinct and are kept apart here:
 
     reference arm   the numeraire of delta NTCP. Fixed across every patient
                     and every policy, so that the zero point never moves
@@ -41,7 +49,9 @@ class Strategy:
               is unconstrained, so no baseline photon session is charged
     ntcp      absolute NTCP per endpoint, {endpoint: probability}
     scheme    fractionation scheme label. 'std' is the standard schedule
-    n_adapt   number of adapted blocks, carried for reporting
+    adapted   True if this is an adapted arm. An adapted arm adapts at every
+              block and a non-adapted arm never adapts (A24), so no count of
+              adapted blocks is carried and none is representable
     baseline  True for the locked reference strategy (XT-NA, standard
               schedule). Defines the zero of delta NTCP whether or not the
               strategy is assignable
@@ -61,7 +71,7 @@ class Strategy:
     tau_xt: float = 0.0
     ntcp: dict = field(default_factory = dict)
     scheme: str = 'std'
-    n_adapt: int = 0
+    adapted: bool = False
     baseline: bool = False
     admissible: bool = True
 
@@ -208,10 +218,16 @@ class Cohort:
         """Patients with no assignable option that is free on both budgets.
 
         This list being empty is what guarantees that no allocation makes a
-        patient worse than the reference arm: the reference arm is then
-        always available at no cost, and it dominates every option of
-        negative utility, on both the linear and the integer problem. No
-        sign constraint is imposed anywhere, and none is needed.
+        patient worse than the reference arm: a free option is then always
+        available, and it dominates every option of negative utility, on both
+        the linear and the integer problem. No sign constraint is imposed
+        anywhere, and none is needed.
+
+        Under two fractionation schemes a patient normally has two free
+        options, XT-NA under each schedule, so the guarantee survives the loss
+        of either one alone (A21 as amended, A27). The count of patients for
+        whom it does not is what makes the no-harm property empirical rather
+        than structural, and it is reported as n_no_free_option.
 
         Where the list is not empty, an optimal allocation may assign a
         strategy of negative delta NTCP to those patients. That is the
@@ -273,7 +289,7 @@ class Allocation:
     @property
     def n_xt_adapted(self):
         return sum(1 for s in self.choice.values()
-                   if s.modality == 'xt' and s.n_adapt > 0)
+                   if s.modality == 'xt' and s.adapted)
 
 @dataclass
 class LPSolution:

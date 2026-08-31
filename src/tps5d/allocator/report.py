@@ -28,10 +28,11 @@ from tps5d.allocator.solve import solve_lp
 from tps5d.allocator.dominance import pareto, hull
 
 def arm_label(s):
-    """Short label for the arm a strategy belongs to."""
-    if s.modality == 'xt':
-        return f"XT, {s.n_adapt} adapt" if s.n_adapt else "photons"
-    return f"PT, {s.n_adapt} adapt" if s.n_adapt else "PT, no adapt"
+    """Short label for the arm a strategy belongs to, scheme included
+    when it is not the standard one."""
+    stem = 'XT' if s.modality == 'xt' else 'PT'
+    arm = f"{stem}-A" if s.adapted else f"{stem}-NA"
+    return arm if s.scheme == 'std' else f"{arm} {s.scheme}"
 
 def summarise(cohort, alloc, facility = None):
     """Scalars describing one allocation.
@@ -48,8 +49,9 @@ def summarise(cohort, alloc, facility = None):
         'n_patients': len(chosen),
         'n_pt': sum(1 for s in chosen if s.modality == 'pt'),
         'n_xt_adapted': sum(1 for s in chosen
-                            if s.modality == 'xt' and s.n_adapt > 0),
-        'n_adapt_total': sum(s.n_adapt for s in chosen),
+                            if s.modality == 'xt' and s.adapted),
+        'n_adapted': sum(1 for s in chosen if s.adapted),
+        'n_hypo': sum(1 for s in chosen if s.scheme != 'std'),
         'used_pt_min': alloc.used_pt,
         'used_xt_min': alloc.used_xt,
     }
@@ -116,10 +118,11 @@ def dominance_counts(cohort):
 
     The two are reported separately because they mean different things. Pareto
     dominance says two arms are not in genuine competition, which is structural
-    and largely uninformative. LP dominance says an adaptation count is one the
-    relaxation would never buy at any capacity, which is the clinically
-    informative statement. One combined count would let the first swamp the
-    second.
+    and largely uninformative. LP dominance says an arm is one the relaxation
+    would never buy at any capacity, which is the clinically informative
+    statement. At version 6 the arms in competition on a cost axis differ by
+    adaptation and by fractionation scheme, not by adaptation count. One
+    combined count would let the first swamp the second.
 
     The reductions are chain-scoped: each chain lies on one cost axis, so the
     counts are computed per chain and summed. No reduction is taken across
