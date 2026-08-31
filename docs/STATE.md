@@ -1,6 +1,6 @@
 # Project state
 
-**Last updated:** 2026-08-28, after the code migration to version 6.
+**Last updated:** 2026-08-31, at tag `design-v6.1`.
 
 Rewrite this file whenever a document version, an open decision or a code
 milestone changes, and rewrite it *before* bumping a document version rather than
@@ -102,14 +102,22 @@ exists.
 Package `tps5d` in the RAPTORproject repository, `src/tps5d/` with `core`,
 `allocator`, `evaluator`, `generator`. Conda environment `OpenTPS`, Windows,
 PowerShell. Implemented: `schema.py`, `solve.py`, `dominance.py`, `policies.py`,
-`report.py`, `synth.py`, `evaluator/ntcp.py`, `evaluator/registry.py`. 145 tests
-passing. Exact solver `scipy.optimize.milp` (HiGHS), `solve_dp` retained as an
-independent cross-check at C_XT = 0.
+`report.py`, `synth.py`, `evaluator/ntcp.py`, `evaluator/registry.py`. Exact
+solver `scipy.optimize.milp` (HiGHS), `solve_dp` retained as an independent
+cross-check at C_XT = 0.
 
-**The code is at version 6.** 164 tests passing. `dominance.py` and `solve.py`
-were not touched: the hull reduction they implement is what makes the greedy LP
-ordering valid, not the collapse over adaptation counts that version 6 retires.
+**The code is at version 6, tagged `design-v6.1`.** 164 tests passing, on SciPy
+1.18.0 and on a second, different build; the floor stays at 1.9, where
+`scipy.optimize.milp` was introduced. `dominance.py` and `solve.py` were not
+touched: the hull reduction they implement is what makes the greedy LP ordering
+valid, not the collapse over adaptation counts that version 6 retires.
 `scripts/step_ratio.py` is deleted.
+
+T12, T13 and T14 are **not implemented**. The suite passing means nothing
+regressed, not that the migration is verified: no test yet asserts that a course
+cannot vary modality or schedule, that the per-course occupancy reproduces the
+version 5 per-block one, or that the count of patients with PT-NA below the hull
+matches the closed form of allocator 6.5.
 
 ## 7. Next actions
 
@@ -117,15 +125,25 @@ Migration done. Next, the assertions the migration did not add.
 
 1. Add T12: no selected strategy varies modality or fractionation scheme. The record now makes this unrepresentable, so the test asserts the construction rather than the outcome.
 2. Add T13: the per-course occupancy reproduces the version 5 per-block occupancy on a fully adapted arm, and the reference-study ladder through T1 is unchanged.
-3. Add T14: the count of patients for whom PT-NA falls below the hull equals the count for whom Δτ_PT is below the closed form of allocator 6.5. The generator work makes this the load-bearing test, since PT-NA is off the hull at the default Δτ of 10 min against a threshold of about 40 min.
+3. Add T14: the count of patients for whom PT-NA falls below the hull equals the count for whom Δτ_PT is below the closed form of allocator 6.5. This is the load-bearing test of the structural result: at the reference study's magnitudes Δτ\* is 18.8 min for two-year mortality, and the published adaptation increment of 9.3 min sits below it, so PT-NA is off the hull there.
 4. Re-measure P2a against P2b. The 1800-instance synthetic magnitudes were measured on multi-rung ladders and do not describe the version 6 option set.
 5. Run open decision 20 as a computation, not as a check: per-replan rather than per-fraction accounting moves the standard adaptation cost from 300 course-minutes to 10, which reorders the hull. Whether PT-NA standard is selectable at all depends on it.
 
 Then, still without data or supervisory input:
 
-6. Degeneracy check on the `pen` parameter in `two_scheme_check.py`: confirm an interior optimum exists over a plausible range. The script is now at two arms per scheme, so the question it asks is which arms survive the hull rather than which adaptation counts.
-7. Map the sign of the utility of the free hypofractionated photon arm over the plausible range of α/β and volume parameter, on synthetic DVHs. If it is non-positive for every patient, decision 18 is empty. Requires the endpoint models, so it follows decision 19.
-8. On the first exported case, measure dose grid dimensions and masked ROI volumes before fixing the storage strategy.
+6. Map the sign of the utility of the free hypofractionated photon arm over the plausible range of α/β and volume parameter, on synthetic DVHs. If it is non-positive for every patient, decision 18 is empty. Requires the endpoint models, so it follows decision 19.
+7. On the first exported case, measure dose grid dimensions and masked ROI volumes before fixing the storage strategy.
+
+**Result recorded, no action outstanding.** The degeneracy check on `pen` in
+`two_scheme_check.py` is done. The standard adapted arm is the highest-cost point
+of a patient's proton frontier, so it lies on the hull exactly when it carries
+the highest utility, which gives the closed form pen\* = a · (a_mult − 1),
+independent of Δτ. At a_mult = 1 the two adapted arms are tied at pen = 0 and the
+cheaper one survives only by the tie-break, so the threshold there is zero and
+carries no information. This refines allocator 6.5, which currently states that
+competition between schemes is resolved by the allocator and not by any closed
+form: one component of that competition does have one. To be written into the
+document with the next version bump.
 
 Held for later, not scheduled: whether hypofractionation should be modelled as
 requiring adaptation at the chosen site. The recommendation is to let the
