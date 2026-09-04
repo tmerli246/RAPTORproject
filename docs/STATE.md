@@ -1,12 +1,18 @@
 # Project state
 
-**Last updated:** 2026-09-04, at tag `design-v6.2`, one round behind. This
-round bumps `allocator_design.md` to 6.3: the pen\* closed form written into
-6.5, closing the last remaining "still pending a version bump" item from 6.2.
-Code not yet re-tagged past `design-v6.2`, so the tag above and the document
-version are out of step again until the next commit. Previous round, 6.2,
-closed T12/T13, implemented T14/T15, corrected three claims (5.2, 5.3, 6.5),
-retired Section 10.3; detail for both rounds in `CHANGELOG.md`.
+**Last updated:** 2026-09-04, at tag `design-v6.2`, by choice. This round adds
+`extractor_design.md` 4.2 to the two documents already moved: dose provenance
+now stated in all three of allocator (decision 25 in 12), evaluator (E16) and
+extractor (Section 11), closing that item everywhere it was open. No tag is
+being cut for any of this; `design-v6.2` stays the reference point until
+directed otherwise. Earlier this same run: `allocator_design.md` to 6.4
+(decisions 21, 22 and the denominator convention closed in the text, not only
+in this file; 12.1 corrected to reflect treatment C's exclusion; decisions 25
+and 26 registered, previously tracked only in this file; Appendix A deleted)
+and to 6.3 before that (the pen\* closed form, 6.5); `evaluator_design.md` to
+5.2 (E16). 6.2 itself, the last tagged state, closed T12/T13, implemented
+T14/T15, corrected three claims, retired Section 10.3. Detail for every round
+in `CHANGELOG.md`.
 
 Rewrite this file whenever a document version, an open decision or a code
 milestone changes, and rewrite it *before* bumping a document version rather than
@@ -25,9 +31,9 @@ which now also inherits Config 2 and the receding-horizon reallocation.
 | Document | Version | Owns |
 | --- | --- | --- |
 | `ROAD_TO_PAPER_1.md` | 6.1 | Scientific question, hypothesis, arm set, uncertainty budget, plan budget, endpoint policy, what the paper claims. Open problems register (4.8). Appendix F, single copy |
-| `allocator_design.md` | 6.3 | Optimization problem, algorithm, shadow prices, step-ratio threshold, policy comparison. Assumptions register (11, amended at 11.1) and open decisions (12) |
-| `evaluator_design.md` | 5.1 | Dose composition, accumulation ordering, EQD2 conversion, NTCP evaluation, admissibility screens, strategy construction. Assumptions register (10, amended at 10.1) |
-| `extractor_design.md` | 4.1 | Ingest, registration, storage, target metrics, plan complexity, ROI naming, provenance |
+| `allocator_design.md` | 6.4 | Optimization problem, algorithm, shadow prices, step-ratio threshold, policy comparison. Assumptions register (11, amended at 11.1) and open decisions (12) |
+| `evaluator_design.md` | 5.2 | Dose composition, accumulation ordering, EQD2 conversion, NTCP evaluation, admissibility screens, strategy construction. Assumptions register (10, amended at 10.1) |
+| `extractor_design.md` | 4.2 | Ingest, registration, storage, target metrics, plan complexity, ROI naming, provenance |
 | `CHANGELOG.md` | - | Version history for all four. Kept in the repository, not in the project knowledge |
 
 The evaluator is one version behind the allocator by convention, not by
@@ -35,7 +41,9 @@ oversight: the two registers are amended by the same decision, recorded as
 version 6 in one and version 5 in the other. That lockstep is on the major
 number only. Allocator 6.2 is a housekeeping and test bump internal to that
 document, touching neither a shared decision nor the evaluator, so the minor
-numbers (6.3 against 5.1) are not expected to match going forward.
+numbers (6.4 against 5.2) are not expected to match going forward. This
+round moved both, for unrelated reasons on each side, which is itself
+evidence the two numbers were never going to track each other.
 
 ## 3. Design, in one paragraph
 
@@ -100,7 +108,7 @@ M13.
 | 3 | PARTICLE operating model: hours per day, rooms, beam sharing, clinical slot length. Which Δτ components are extractable from RayStation plan data |
 | 12 / A15 | Plausible range for Δτ_XT, and whether photon plan verification is measurement-based or computational within a session |
 | 13 | Reference value C_XT^ref |
-| 25 | Which RayStation dose engine generates the proton plans, analytical pencil beam or Monte Carlo, and the reporting conventions for both modalities: RBE weighting, dose-to-water or dose-to-medium, grid resolution and origin. The engine choice bears on the premise of the study, since analytical dose is least reliable in the heterogeneous abdomen and the error is systematic rather than random, so it does not average out over the cohort and it falls on the arm whose degradation under anatomical change the paper measures |
+| 25 | Which RayStation dose engine generates the proton plans, analytical pencil beam or Monte Carlo, and the reporting conventions for both modalities: RBE weighting, dose-to-water or dose-to-medium, grid resolution and origin. The engine choice bears on the premise of the study, since analytical dose is least reliable in the heterogeneous abdomen and the error is systematic rather than random, so it does not average out over the cohort and it falls on the arm whose degradation under anatomical change the paper measures. Registered in allocator 12, evaluator 10 (E16) and extractor 11, at 6.4/5.2/4.2, previously tracked only here |
 | - | Whether short-course patients in the cohort have any repeated imaging. Determines whether the hypofractionated schedule has blocks at all, and therefore whether decision 23 arises |
 
 ### Split
@@ -116,7 +124,7 @@ M13.
 | ID | Question |
 | --- | --- |
 | 20 | Per-replan cost accounting as a sensitivity bound on A16 and A19 |
-| 26 | Whether the replans required by the adapted arms are producible without manual intervention. PT-A and XT-A adapt at every block, so each patient needs one fresh inverse optimisation per block per adapted arm, not a recomputation of an existing plan on new anatomy as in the non-adapted arms. Decision 23 fixes the count at 16 or 22 plans per patient. If each replan requires an operator to adjust objectives until the plan is acceptable, plan quality becomes a function of effort spent, effort is not constant across arms, and the difference enters ΔNTCP as a confounder on the primary endpoint. The question is therefore whether a fixed objective template can be scripted in RayStation and applied without intervention, and whether the resulting plans are clinically plausible. Raised in `dc18_timeline.docx` §8.3 as an argument for option 4 and left without an owner when that option was dropped |
+| 26 | Whether the replans required by the adapted arms are producible without manual intervention. PT-A and XT-A adapt at every block, so each patient needs one fresh inverse optimisation per block per adapted arm, not a recomputation of an existing plan on new anatomy as in the non-adapted arms. Decision 23 fixes the count at 16 or 22 plans per patient. If each replan requires an operator to adjust objectives until the plan is acceptable, plan quality becomes a function of effort spent, effort is not constant across arms, and the difference enters ΔNTCP as a confounder on the primary endpoint. The question is therefore whether a fixed objective template can be scripted in RayStation and applied without intervention, and whether the resulting plans are clinically plausible. Raised in `dc18_timeline.docx` §8.3 as an argument for option 4 and left without an owner when that option was dropped. Registered in allocator 12 at 6.4, previously tracked only here |
 
 **Closed by the doctoral candidate, August 2026.**
 
@@ -154,8 +162,11 @@ PowerShell. Implemented: `schema.py`, `solve.py`, `dominance.py`, `policies.py`,
 retained as an independent cross-check at C_XT = 0.
 
 **The code implements the version 6 design.** Tagged `design-v6.2`; the
-allocator document has since moved to 6.3, so the tag is one round behind
-again until the next commit.
+allocator document has since moved to 6.4, the evaluator to 5.2 and the
+extractor to 4.2, none of it a code change. No new tag is cut this round, by
+explicit instruction rather than by delay: `design-v6.2` remains the tagged
+reference until the candidate directs otherwise.
+
 `dominance.py` and `solve.py` are unchanged since version 6: the hull
 reduction they implement is what makes the greedy LP ordering valid, not the
 collapse over adaptation counts that version 6 retired. `scripts/step_ratio.py`
@@ -185,11 +196,10 @@ photon and proton alike, chosen for throughput given the plan count implied by
 decision 23. OpenTPS performs accumulation, evaluation and allocation and
 calculates no dose. The photon CCC implementation in OpenTPS is therefore not on
 the critical path of this study, and the contribution to D4.1 is entirely
-evaluation-side. Neither `extractor_design.md` 4.1 nor `evaluator_design.md` 5.1
-currently states this: the evaluator assumes block-level physical dose already
-homogeneous without naming its origin. Two consequences are registered as open
-decisions 25 and 26, and the assumption itself is to be written into the two
-registers at the next version bump.
+evaluation-side. Written into `evaluator_design.md` as E16 at 5.2 and into
+`extractor_design.md` at 4.2, in Section 11 (Provenance), not Section 1 as
+guessed here previously. Two consequences remain registered as open decisions
+25 and 26, now in `allocator_design.md` 12 as well as here.
 
 **T12, T13 closed; T14 and T15 implemented.** T12 tested an outcome the record
 already makes unrepresentable by construction and is retired void: no test
@@ -252,14 +262,20 @@ construction would also dissolve A27 and open decision 18, retiring two items
 nobody had decided to retire. The generator flag is retained as a near-free
 sensitivity.
 
-**Still pending a version bump**, none of it touched by 6.2 or 6.3, in
-`allocator_design.md`: the dose provenance assumption and the cross-modality
-reporting convention, also in `evaluator_design.md`; the closure of 21, 22 and
-the denominator convention; in 12.1, the exclusion of treatment C with its
-reason and the note that A or B and D are not mutually exclusive; and the
-deletion of Appendix A, the memo on alternative units for the photon
-adaptation budget, which is no longer needed. Each needs a `CHANGELOG.md`
-entry, which lives in the repository.
+**Closed this round (allocator 6.4, evaluator 5.2, extractor 4.2).** Decisions
+21 and 22 resolved in the text of allocator 12, not only in this file; the
+denominator convention resolved in the same place. 12.1 renamed and
+corrected: treatment C is marked excluded with its reason rather than
+presented as a live option, and a new paragraph states that A and D are not
+mutually exclusive. Decision 18's own row in 12 updated to match. Appendix A
+deleted. Decisions 25 and 26, until now tracked only in this file, are
+registered in allocator 12; decision 25 also as E16 in evaluator 10 and in
+extractor 11 (Provenance), stating in all three that all dose for paper 1 is
+computed in RayStation and imported. The cross-modality reporting convention
+itself is not written anywhere, since it does not exist yet: decision 25
+remains open, blocked on the clinical partners, and both new passages say so.
+This closes the "still pending a version bump" list from 6.2; nothing remains
+on it.
 
 ## 8. Calendar
 

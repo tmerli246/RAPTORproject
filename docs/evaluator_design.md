@@ -1,6 +1,6 @@
 # Evaluation Module
 
-Version 5.1. Version history is in `CHANGELOG.md`. Project status and open items are in `STATE.md`.
+Version 5.2. Version history is in `CHANGELOG.md`. Project status and open items are in `STATE.md`.
 
 ## 1. Purpose and scope
 
@@ -51,6 +51,8 @@ Robustness contributes no independent index to the strategy tuple, as in version
 ## 3. Interface contract
 
 **Consumes, per patient:** block-level physical dose per candidate plan, masked to the ROI union; deformation vector fields keyed by image pair and DIR settings hash; per-block target metrics, nominal and worst-case; ROI masks and grid geometry under canonical names; clinical covariates required by the active NTCP models; plan complexity descriptors.
+
+**Dose provenance (E16).** This physical dose is computed in RayStation for both modalities and imported; OpenTPS performs no dose calculation for this study, including no use of its own photon CCC implementation. See Section 10.
 
 **Emits, per (patient, strategy):**
 
@@ -257,6 +259,7 @@ The independence assumption is false, since toxicities in a shared anatomical re
 | E12 | The photon adapted arm carries the reduced-margin plan on the block’s repeat image, as the proton adapted arm does | Extends the construction rule of Section 2 to photons                       | If the photon margin reduction is not deliverable on a block, the coverage screen removes it and no conservative adaptive photon plan remains, exactly as for protons                                                                                                                                                                 |
 | E13 | Only the adaptation increment is charged to the photon budget                                                      | Follows from A17 of the allocator document                                  | If photon delivery is binding at the partner centre, the emitted tau_xt understates photon demand                                                                                                                                                                                                                                     |
 | E14 | The photon adapted arm adapts on the block repeat images, the same rCTs the proton arm uses                        | Design decision. The rCTs are the images that exist in the data             | The modelled photon adaptation is a per-block surrogate of the online ART workflow, which adapts on daily CBCT or MR. The surrogate understates adaptation frequency and uses a different image; the direction of the net bias on the photon adaptation benefit is not known. This is the photon twin of A1 of the allocator document |
+| E16 | All dose for paper 1 is computed in RayStation and imported, for both modalities; OpenTPS performs no dose calculation, including no use of its photon CCC implementation | Design decision, following the Secondment 1 scope confirmation | The engine choice and cross-modality reporting conventions, RBE weighting, dose-to-water or dose-to-medium, grid resolution and origin, remain open: decision 25 of the allocator document. Bears on the study's premise, since analytical proton dose is least reliable in a heterogeneous abdomen and the resulting error is systematic rather than random, falling on the arm whose anatomical degradation the study measures |
 
 ### 10.1 Amendments at version 5
 

@@ -1,6 +1,6 @@
 # Extraction Module
 
-Version 4.1. Version history is in `CHANGELOG.md`. Project status and open items are in `STATE.md`.
+Version 4.2. Version history is in `CHANGELOG.md`. Project status and open items are in `STATE.md`.
 
 ## 1. Purpose and scope
 
@@ -34,6 +34,8 @@ Three rules, the first two lossless for the endpoints in use.
 - The conversion to biologically effective dose is performed **before** deformation, because the conversion is nonlinear and does not commute with interpolation. The warped object is therefore a BED field, which depends on both the fractionation scheme and the structure’s alpha over beta, and is not unique. Warped fields are derived products belonging to the evaluator’s cache, not to the extractor’s store.
 
 The extractor therefore stores physical dose per block on its own image, together with the fraction count and the deformation fields. Everything downstream of that is recomputable.
+
+**Dose provenance.** This physical dose is computed in RayStation for both modalities and imported; OpenTPS performs no dose calculation for this study, including no use of its own photon CCC implementation. See Section 11.
 
 Grid dimensions and masked ROI volumes are not yet known and should be measured on the first exported case before the storage strategy is fixed.
 
@@ -149,6 +151,8 @@ Two fields present in version 1 have been removed. `dose_blocks` indexed per str
 ## 11. Provenance and uncertainty
 
 Every metric and every model parameter carries a tag recording whether it is measured, taken from a named publication, or assumed. Without it, automated uncertainty propagation is difficult. Since the allocator’s output is a difference of small probabilities, sensitivity to NTCP parameter uncertainty is worth studying, and the provenance tag is what makes the set of parameters to perturb enumerable rather than hand-maintained.
+
+**Dose is tagged RayStation-computed.** All physical dose for paper 1, both modalities, is generated in RayStation and imported; OpenTPS calculates no dose, including no use of its own photon CCC implementation for the photon arms. The choice bears on the study's premise, since analytical proton dose is least reliable in a heterogeneous abdomen and the resulting error is systematic rather than random, falling on the arm whose anatomical degradation the study measures. Which RayStation algorithm, analytical pencil beam or Monte Carlo, and the cross-modality reporting conventions, RBE weighting, dose-to-water or dose-to-medium, grid resolution and origin, are not yet fixed: open decision 25 of the allocator document.
 
 ## 15. Open items
 

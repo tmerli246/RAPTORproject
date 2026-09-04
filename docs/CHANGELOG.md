@@ -196,6 +196,24 @@ Two further changes follow from discussion rather than decision.
 
 # Capacity and Allocation Module (allocator)
 
+## Changes from version 6.3
+
+Allocator 6.4. Closes the last items still pending a version bump since 6.2:
+transcribes decisions already recorded in `STATE.md` into the document's own
+registers, corrects one that had drifted, and registers two decisions that
+existed only in `STATE.md`. No new decision is taken.
+
+| Change | Where |
+| --- | --- |
+| Decision 21 resolved in the text: first block evaluated on the planning anatomy, for every arm, the convention of the reference study. Previously still phrased as an open question, contradicting `STATE.md`'s record | allocator 12 |
+| Decision 22 resolved in the text: the reduced-margin non-adapted diagnostic is not computed, for clinical incoherence. Same correction as 21 | allocator 12 |
+| The cohort-mean denominator resolved in the text: displaced patients retained, intention-to-treat over the referred population. Previously an unnumbered "additional item" still phrased as open | allocator 12 |
+| 12.1 renamed and corrected. Treatment C, a third budget row for photon stereotactic delivery, marked excluded with its reason, kept in the table for the record rather than deleted, rather than presented as one of four live options. A new paragraph states that treatments A and D are not mutually exclusive. Decision 18's own row in 12 updated to match | allocator 12, 12.1 |
+| Decisions 25 and 26 registered, previously tracked only in `STATE.md`. 25: which RayStation dose engine and which cross-modality reporting conventions, open, blocked on the clinical partners. 26: whether adapted-arm replanning is scriptable without manual intervention, open, a candidate feasibility probe | allocator 12 |
+| Appendix A deleted: the memo on alternative units for the photon adaptation budget, no longer needed | — |
+
+**What did not change.** The formulation, the algorithm, every test claim, every other assumption and open decision.
+
 ## Changes from version 6.2
 
 Allocator 6.3. One addition, closing the last item that 6.2 had left pending:
@@ -400,6 +418,28 @@ Two further changes follow from the discussion rather than from a decision.
 
 # Evaluation Module (evaluator)
 
+## Changes from version 5.1
+
+Evaluator 5.2. First change to this document in this run of rounds. Writes
+the dose-provenance fact that `STATE.md` has carried since the Secondment 1
+scope decision, closing evaluator's half of a two-document item; the other
+half is in allocator 6.4.
+
+| Change | Where |
+| --- | --- |
+| New assumption E16: all dose for paper 1 is computed in RayStation and imported, for both modalities; OpenTPS performs no dose calculation, including no use of its own photon CCC implementation. A provenance fact, not previously stated anywhere in this document, which assumed block-level physical dose already homogeneous without naming its origin | evaluator 10 |
+| Cross-reference to E16 added at the point Section 3 defines block-level physical dose as consumed, so a reader meets the provenance where the quantity is first named rather than only in the register | evaluator 3 |
+
+**What E16 does not state.** The reporting convention across modalities, RBE
+weighting, dose-to-water or dose-to-medium, grid resolution and origin, is
+not written here because it is not decided: E16's own risk column points to
+allocator decision 25, open, blocked on the clinical partners. Writing a
+convention now would be inventing one.
+
+**What did not change.** `extractor_design.md`, also named in `STATE.md`'s
+original note on this gap, is untouched; the same fact may belong there too,
+not attempted in this round.
+
 ## Changes from version 4
 
 **Decision.** The treatment choice is made at prescription, on the planning CT. Adaptation is a course-level property: an adapted arm adapts at every block and carries a reduced-margin plan from the first fraction, a non-adapted arm carries the clinical-margin pCT plan throughout. There is no adaptation vector.
@@ -460,6 +500,24 @@ The allocator’s capacity model now carries two resources: proton machine time 
 ---
 
 # Extraction Module (extractor)
+
+## Changes from version 4.1
+
+Extractor 4.2. Closes extractor's share of the dose-provenance item, the last
+of the three modules to receive it: allocator (decision 25, 6.4) and
+evaluator (E16, 5.2) came first in this same run of rounds.
+
+| Change | Where |
+| --- | --- |
+| Dose provenance stated where physical dose is first described as stored: computed in RayStation for both modalities and imported, OpenTPS calculates none, including no use of its own photon CCC implementation | extractor 3 |
+| Fuller statement added to the Provenance section itself, the document's existing designated place for this kind of fact, with the open half named: which RayStation algorithm and the cross-modality reporting conventions are not yet fixed, allocator decision 25 | extractor 11 |
+
+This document carries no A- or E-style numbered assumption register, unlike
+the allocator and evaluator documents; the addition is prose in the two
+sections above rather than a new numbered entry, matching how the document
+already states everything else.
+
+**What did not change.** Every other section; no code file.
 
 ## Changes from version 3
 
