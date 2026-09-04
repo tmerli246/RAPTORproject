@@ -21,7 +21,7 @@ def test_summary_counts_every_patient_once():
     rec = summarise(c, p3(c, FAC), FAC)
     arm_keys = [k for k in rec if k.startswith('n_') and
                 k not in ('n_patients', 'n_pt', 'n_xt_adapted', 'n_adapted',
-                          'n_hypo')]
+                          'n_hypo', 'n_dntcp_neg')]
     assert sum(rec[k] for k in arm_keys) == rec['n_patients'] == 10
 
 def test_summary_mean_matches_the_allocation():
