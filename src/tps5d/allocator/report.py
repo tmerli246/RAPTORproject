@@ -138,8 +138,23 @@ def dominance_counts(cohort):
                 continue
             pts = [(getattr(s, cost), cohort.dntcp(s)) for s in chain]
             n_opts += len(chain)
-            n_par += len(pareto(pts))
-            n_hull += len(hull(pts))
+            if cost == 'occ_xt':
+                # The proton axis is anchored at the origin for free: XT-NA
+                # has occ_pt == 0.0 and tau_xt == 0.0, so the filter above
+                # already places it in the 'occ_pt' chain. The photon axis
+                # has no such accident, since XT-NA is excluded by the same
+                # filter there. Without an explicit anchor, two paid photon
+                # rungs are always mutually non-dominated by construction of
+                # pareto() and hull() on two points, so a rung that is in
+                # fact LP-dominated by a mixture of the free base and the
+                # other rung is silently kept. Anchoring at (0, 0) here
+                # makes the photon axis symmetric with the proton one.
+                anchored = [(0.0, 0.0)] + pts
+                n_par += len(pareto(anchored)) - 1
+                n_hull += len(hull(anchored)) - 1
+            else:
+                n_par += len(pareto(pts))
+                n_hull += len(hull(pts))
         per_patient[pid] = {'n_options': n_opts,
                             'n_pareto_dominated': n_opts - n_par,
                             'n_lp_dominated': n_par - n_hull}
