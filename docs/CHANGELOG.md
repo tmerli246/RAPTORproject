@@ -196,6 +196,50 @@ Two further changes follow from discussion rather than decision.
 
 # Capacity and Allocation Module (allocator)
 
+## Changes from version 6.1
+
+Allocator 6.2. No design decision is taken here: this is verification of the
+version 6 claims register (T14, T15) and correction of three claims found
+inconsistent with the option set structure version 6 itself introduced, found
+while carrying that verification out.
+
+| Change | Where |
+| --- | --- |
+| T12 retired void. It asserted an outcome the record already makes unrepresentable by construction, so no test could have failed it | allocator 5.4 |
+| T13 absorbed into T1. The reference-study ladder is its only checkable half; the per-block occupancy comparison had no surviving version 5 implementation to check against | allocator 5.4 |
+| T14 implemented and passing, scoped to a single fractionation scheme, matching the scope the closed form itself claims: allocator 6.5 and road 1 both state the threshold as a per-scheme statement | allocator 5.4, `test_threshold.py` |
+| T15 added: the two-resource swap check, previously labelled T10 only inside `test_two_resource.py`'s own docstring, where it collided with this document's own T10, the no-harm claim | allocator 5.4, `test_two_resource.py` |
+| Cross-reference corrected: the hull reduction is defined in Section 5.2, not 5.3 as written | allocator 5.1 |
+| LP-dominance claim restated. "The photon chain holds one rung and cannot be LP-dominated" holds only within a single scheme. Pooled across two schemes, both axes carry two rungs above the free base and both can be LP-dominated by the identical geometric argument; `report.dominance_counts` anchors each axis at its own free point before reducing, so the pooled count is correct, but no closed form covers this case | allocator 5.2 |
+| P2a/P2b coincidence claim restated. Holds only within a single scheme. Pooled across two, a best-available upgrade can also skip from the photon base past one scheme's PT-NA to the other scheme's PT-A, which the single-scheme argument does not describe. Illustrated on a synthetic two-scheme cohort, 6.6 per cent against 3.4 per cent, not measured on the study cohort | allocator 5.3 |
+| Section 10.3 retired. It re-solved with peak occupancy in place of the course average to bound the risk of within-course variation from partial adaptation; A24 already makes that variation unrepresentable, so nothing remains for the bound to catch. A2 updated to match | allocator 10.3, 11 |
+| Per-replan closed form added, Δτ\*_replan(w) = (n_fx / B) · τ_0 · a / (m − w), generalising the existing Δτ\*(w) to the accounting convention of open decision 20. Illustrated at the same published magnitudes already used in this section, with B = 3 from the block definition of Section 9: 30 course-minutes for the standard schedule's adaptation cost under this convention, not the 10 course-minutes previously carried only in `STATE.md`, and a threshold of 188 min rather than 18.8. The cross-schedule comparison decision 20 is actually for remains open, pending B for the hypofractionated schedule from decision 23 | allocator 6.5, 12 |
+
+**What did not change.** The formulation of Section 5.1, the MCKP model itself,
+the policy definitions of 5.3 beyond the one claim above, the admissibility
+machinery of Section 8, and every other assumption and open decision are
+untouched.
+
+### Code
+
+Verification found one bug, in the reporting layer rather than in any solver
+or heuristic. 236 tests passing, from 164: 133 confirmed this round across
+the seven files touched (`test_admissibility`, `test_lp`, `test_policies`,
+`test_report`, `test_solve`, `test_threshold`, `test_two_resource`), 72 of
+them new (T14); the remaining 31, in `test_ntcp` and `test_registry`, were not
+re-run.
+
+| Change | Where |
+| --- | --- |
+| `dominance_counts` anchored the proton axis at the origin only by accident, through the same filter that selects the chain; the photon axis was never anchored. Two paid photon rungs are therefore always mutually non-dominated by construction of `pareto`/`hull` on two points, regardless of parameters, so a rung genuinely LP-dominated by a mixture of the free base and the other rung was silently kept. Confirmed on an adversarial two-rung construction: `n_lp_dominated` read 0 before the fix, should read and now reads 1 | `allocator/report.py` |
+| `test_summary_counts_every_patient_once`'s exclusion list omitted `n_dntcp_neg`, which also starts with `n_`. Passed only because the fixture carried no stranded patient. Confirmed on a constructed stranded-patient fixture: summed to 3 against `n_patients` 2 before the fix, 2 against 2 after | `test_report.py` |
+| T14 added: 72 parametrized cases sweeping Δτ_PT, the presence and price of photon coupling, and the photon budget as a fraction of cohort demand (`demand_xt()`), rather than a cohort built to straddle the threshold. Checked against `dominance.hull` on the photon-outside-option-augmented proton frontier directly, not against `chains()`/`solve_greedy`, neither of which ever forms that point: P2a and P2b rank the proton chain against its own free base only (allocator 5.3), never against the photon price. A first version swept the photon budget in raw minutes and passed even with the w-term of the closed form deliberately deleted, because that range rarely produced w > 0 at these magnitudes; the demand-fraction sweep does, and correctly fails 11 of 76 cases when the same term is deleted | `test_threshold.py` |
+| T10 relabelled T15 in this file's own docstring and test name, matching its registration in allocator 5.4 | `test_two_resource.py` |
+| Header comment added, mapping this file's A-labelled claims to the document's T-numbers: A1-A2 to T10, A3-A6 to T11. A7-A8 have no T-number in the design document | `test_admissibility.py` |
+
+**What did not change.** `dominance.py`, `solve.py`, `schema.py`,
+`policies.py`, `synth.py` and `figures.py` are untouched.
+
 ## Changes from version 5
 
 One supervisory decision restructures the option set, and everything else in this section follows from it.
