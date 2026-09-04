@@ -6,11 +6,15 @@ T8   at C_XT = 0 the two-resource solve reproduces the version 4
      single-resource result exactly
 T9   beyond the cohort's photon adaptation demand, lambda_xt is zero and
      every patient not receiving protons holds an adapted photon option
-T10  swapping the roles of the two resources reproduces the mirrored problem
+T15  swapping the roles of the two resources reproduces the mirrored problem
 
 T8 and T9 are the endpoints of the normalised C_XT sweep and double as
 regression tests: the version 4 behaviour must survive as a boundary case
 rather than be replaced.
+
+Registered as T15, not T10, in allocator design 5.4: T10 there is the no-harm
+claim tested in test_admissibility.py, unconnected to this one. The two
+shared the label only here, never in the design document itself.
 """
 
 import numpy as np
@@ -85,7 +89,7 @@ def test_t9_saturated_photon_budget():
         if s.modality == 'xt':
             assert s.adapted
 
-def test_t10_swapping_the_resources_mirrors_the_problem():
+def test_t15_swapping_the_resources_mirrors_the_problem():
     """Relabel every strategy's costs onto the other axis and swap the budgets:
     the optimal value must be unchanged. Guards axis indexing in the model."""
     cohort = two_chain(n = 6)

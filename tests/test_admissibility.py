@@ -14,6 +14,11 @@ Claims under test:
     A7  the heuristics respect both budgets when a default arm already
         consumes one of them
     A8  the diagnostics count what they claim to count
+
+Correspondence with allocator design 5.4: A1-A2 test T10 (no negative utility
+while a free reference arm exists, and the Pareto reduction that achieves it);
+A3-A6 test T11 (inadmissible reference arm, empty option set, restrict). A7-A8
+are code-level guards without a T-number in the design document.
 """
 
 import numpy as np
