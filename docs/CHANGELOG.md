@@ -196,6 +196,47 @@ Two further changes follow from discussion rather than decision.
 
 # Capacity and Allocation Module (allocator)
 
+## Changes from version 6.2
+
+Allocator 6.3. One addition, closing the last item that 6.2 had left pending:
+the pen\* closed form, its derivation already recorded in `STATE.md`, is
+written into 6.5. Verifying it against `scripts/two_scheme_check.py` surfaced
+a stale constant there, corrected in the same pass.
+
+| Change | Where |
+| --- | --- |
+| Closed form added: PT-A standard, the highest-cost point of a patient's pooled proton frontier at every reachable setting, survives the hull exactly when it also carries the highest utility of the whole set, which reduces to pen\* = a · (a_mult − 1). Independent of Δτ and of every occupancy parameter, since the comparison is between utilities alone. Illustrated at the reference-study magnitude a = 3.8 points already used in this section. Scoped explicitly to this one point of the pooled frontier; the other three remain resolved by the allocator directly | allocator 6.5 |
+| Cross-link added from the existing "non-concave profile" paragraph to the new result, since that paragraph already named the mechanism in words | allocator 6.5 |
+
+**Verification.** Checked two ways against `scripts/two_scheme_check.py`:
+against its own printed table (pen\* = 1.14, 2.28, 3.80 at a_mult = 1.3, 1.6,
+2.0, matching its bisection search to the two decimal places it prints) and
+against a direct bisection call to its own `ladder()`/`survivors()` functions
+at five a_mult values, matching to six decimal places throughout, including
+the a_mult = 1 tie-break boundary the script's own comments already describe.
+Independently, 20 000 randomly parametrised patients checked against
+`dominance.hull` directly, zero mismatches, and 200 000 more checked for
+whether the script's own `startswith('std')` survivor test could ever
+disagree with a precise `== 'stdA'` one: zero disagreements while a > 0, the
+only regime the model intends, since a patient-level argument shows the two
+are equivalent there and not merely coincident. `startswith('std')` is left
+as is; the equivalence makes the tighter check a style preference, not a
+correction.
+
+### Code
+
+Checking pen\* against `scripts/two_scheme_check.py` surfaced a stale
+constant: N_STD = 28 for the standard schedule, labelled as following the
+reference study, against n_fx = 30 used for the same schedule in Section 9
+and `test_threshold.py` (three blocks of ten fractions).
+
+| Change | Where |
+| --- | --- |
+| N_STD corrected from 28 to 30. Changes the script's course-cost and surviving-configuration tables (958 to 1026 minutes for a non-adapted standard course); does not change its pen\* table, checked at both values before settling on the correction, which is the independence from n_fx that 6.5 now states algebraically | `scripts/two_scheme_check.py` |
+
+**What did not change.** Every other section, assumption and open decision;
+no other code file.
+
 ## Changes from version 6.1
 
 Allocator 6.2. No design decision is taken here: this is verification of the

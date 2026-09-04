@@ -1,8 +1,12 @@
 # Project state
 
-**Last updated:** 2026-09-04, at tag `design-v6.2`. `allocator_design.md`
-bumped to 6.2: T12 and T13 closed, T14 and T15 implemented, three claims
-corrected (5.2, 5.3, 6.5), Section 10.3 retired. Detail in `CHANGELOG.md`.
+**Last updated:** 2026-09-04, at tag `design-v6.2`, one round behind. This
+round bumps `allocator_design.md` to 6.3: the pen\* closed form written into
+6.5, closing the last remaining "still pending a version bump" item from 6.2.
+Code not yet re-tagged past `design-v6.2`, so the tag above and the document
+version are out of step again until the next commit. Previous round, 6.2,
+closed T12/T13, implemented T14/T15, corrected three claims (5.2, 5.3, 6.5),
+retired Section 10.3; detail for both rounds in `CHANGELOG.md`.
 
 Rewrite this file whenever a document version, an open decision or a code
 milestone changes, and rewrite it *before* bumping a document version rather than
@@ -21,7 +25,7 @@ which now also inherits Config 2 and the receding-horizon reallocation.
 | Document | Version | Owns |
 | --- | --- | --- |
 | `ROAD_TO_PAPER_1.md` | 6.1 | Scientific question, hypothesis, arm set, uncertainty budget, plan budget, endpoint policy, what the paper claims. Open problems register (4.8). Appendix F, single copy |
-| `allocator_design.md` | 6.2 | Optimization problem, algorithm, shadow prices, step-ratio threshold, policy comparison. Assumptions register (11, amended at 11.1) and open decisions (12) |
+| `allocator_design.md` | 6.3 | Optimization problem, algorithm, shadow prices, step-ratio threshold, policy comparison. Assumptions register (11, amended at 11.1) and open decisions (12) |
 | `evaluator_design.md` | 5.1 | Dose composition, accumulation ordering, EQD2 conversion, NTCP evaluation, admissibility screens, strategy construction. Assumptions register (10, amended at 10.1) |
 | `extractor_design.md` | 4.1 | Ingest, registration, storage, target metrics, plan complexity, ROI naming, provenance |
 | `CHANGELOG.md` | - | Version history for all four. Kept in the repository, not in the project knowledge |
@@ -31,7 +35,7 @@ oversight: the two registers are amended by the same decision, recorded as
 version 6 in one and version 5 in the other. That lockstep is on the major
 number only. Allocator 6.2 is a housekeeping and test bump internal to that
 document, touching neither a shared decision nor the evaluator, so the minor
-numbers (6.2 against 5.1) are not expected to match going forward.
+numbers (6.3 against 5.1) are not expected to match going forward.
 
 ## 3. Design, in one paragraph
 
@@ -149,7 +153,9 @@ PowerShell. Implemented: `schema.py`, `solve.py`, `dominance.py`, `policies.py`,
 `evaluator/registry.py`. Exact solver `scipy.optimize.milp` (HiGHS), `solve_dp`
 retained as an independent cross-check at C_XT = 0.
 
-**The code implements the version 6 design, tagged `design-v6.2`.**
+**The code implements the version 6 design.** Tagged `design-v6.2`; the
+allocator document has since moved to 6.3, so the tag is one round behind
+again until the next commit.
 `dominance.py` and `solve.py` are unchanged since version 6: the hull
 reduction they implement is what makes the greedy LP ordering valid, not the
 collapse over adaptation counts that version 6 retired. `scripts/step_ratio.py`
@@ -223,16 +229,21 @@ Still without data or supervisory input:
 2. On the first exported case, measure dose grid dimensions and masked ROI volumes before fixing the storage strategy.
 3. Run decision 26 as a feasibility probe on one patient rather than as a question: script one adapted-arm replan per modality from a fixed objective template and record whether the result is acceptable without intervention. The answer sizes the whole cohort phase and is needed before the plan-generation effort is committed.
 
-**Result recorded, no action outstanding.** The degeneracy check on `pen` in
-`two_scheme_check.py` is done. The standard adapted arm is the highest-cost point
-of a patient's proton frontier, so it lies on the hull exactly when it carries
-the highest utility, which gives the closed form pen\* = a · (a_mult − 1),
-independent of Δτ. At a_mult = 1 the two adapted arms are tied at pen = 0 and the
-cheaper one survives only by the tie-break, so the threshold there is zero and
-carries no information. This refines allocator 6.5, which currently states that
-competition between schemes is resolved by the allocator and not by any closed
-form: one component of that competition does have one. Not part of this round;
-still to be written into the document at a future version bump.
+**Closed this round (allocator 6.3).** The pen\* closed form is written into
+6.5: the standard adapted arm is the highest-cost point of a patient's pooled
+proton frontier, so it lies on the hull exactly when it also carries the
+highest utility, giving pen\* = a · (a_mult − 1), independent of Δτ. Verified
+against `scripts/two_scheme_check.py`'s own `hull()` calls, both its printed
+table and a direct bisection against its `ladder()`/`survivors()` functions,
+matching to six decimal places at a_mult = 1.0, 1.3, 1.6, 2.0, 2.5. This
+refines 6.5, which states that competition between schemes is resolved by the
+allocator and not by any closed form: one point of that competition, the one
+Section 5.4's dominance-count question is silent on, does have one; it does
+not extend to the other three points of the pooled frontier. The verification
+caught `two_scheme_check.py`'s N_STD at 28, inconsistent with the n_fx = 30
+of Section 9 and `test_threshold.py` for the same schedule; corrected to 30
+in the same round. The correction changes the script's course-cost and
+configuration tables but not its pen\* table, checked at both values.
 
 **Decided, August 2026.** Hypofractionation is not modelled as requiring
 adaptation. Non-adapted hypofractionated arms are removed by the coverage screen
@@ -241,14 +252,14 @@ construction would also dissolve A27 and open decision 18, retiring two items
 nobody had decided to retire. The generator flag is retained as a near-free
 sensitivity.
 
-**Still pending a version bump**, none of it touched by 6.2, in
-`allocator_design.md`: the closed form for pen\*; the dose provenance
-assumption and the cross-modality reporting convention, also in
-`evaluator_design.md`; the closure of 21, 22 and the denominator convention;
-in 12.1, the exclusion of treatment C with its reason and the note that A or B
-and D are not mutually exclusive; and the deletion of Appendix A, the memo on
-alternative units for the photon adaptation budget, which is no longer needed.
-Each needs a `CHANGELOG.md` entry, which lives in the repository.
+**Still pending a version bump**, none of it touched by 6.2 or 6.3, in
+`allocator_design.md`: the dose provenance assumption and the cross-modality
+reporting convention, also in `evaluator_design.md`; the closure of 21, 22 and
+the denominator convention; in 12.1, the exclusion of treatment C with its
+reason and the note that A or B and D are not mutually exclusive; and the
+deletion of Appendix A, the memo on alternative units for the photon
+adaptation budget, which is no longer needed. Each needs a `CHANGELOG.md`
+entry, which lives in the repository.
 
 ## 8. Calendar
 

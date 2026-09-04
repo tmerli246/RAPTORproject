@@ -24,7 +24,7 @@ from tps5d.allocator.dominance import hull
 
 # Baseline setting, following the reference study for the standard schedule.
 TAU0 = 34.2          # min per fraction, non-adapted session
-N_STD = 28           # fractions, standard schedule
+N_STD = 30           # fractions, standard schedule (Section 9: three blocks of ten)
 N_HYP = 5            # fractions, hypofractionated schedule
 
 # Delivery time per fraction is longer under hypofractionation, through higher
