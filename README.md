@@ -14,16 +14,20 @@ Two resources are modelled. Proton machine time is consumed by the proton arms.
 Photon adaptation time is consumed by the adapted photon arm, and only as the
 adaptation increment, since photon delivery is treated as unconstrained. The
 non-adapted photon arm consumes neither and remains the locked reference against
-which every delta NTCP is measured, so the allocation is always feasible.
+which every delta NTCP is measured, so the allocation is always feasible: an arm
+whose coverage fails on a repeat image is rescued by an offline replan at
+unchanged margin rather than withdrawn, and its fractionation schedule is fixed
+by clinical eligibility rather than chosen by the allocation.
  
 The last one (WP3) involves the development and training of an AI decision-support agent
 with reinforcement learning and will be addressed in the future.
  
 As of now, the repository consists mostly of what is needed for WP1 and WP2.
  
- 
 ## Structure
  
+    README.md
+    docs/             design documents, one per module, plus STATE.md and CHANGELOG.md
     src/tps5d/
         core/         records exchanged between the modules
         extractor/    ingest, registration, per-block dose and target metrics
@@ -33,7 +37,8 @@ As of now, the repository consists mostly of what is needed for WP1 and WP2.
     scripts/          analysis entry points
     tests/            the algorithmic claims
  
-The design of each module is specified in its own document.
+The design of each module is specified in its own document. `docs/STATE.md` is
+the first one to read: it describes the present, and points to the others.
  
 ## Install
  
@@ -53,7 +58,12 @@ the reference study's structure. That reduction is tested
  
 The evaluator currently contains only the NTCP models and the biological
 functions; composition, the admissibility screens and the caching layer are not
-yet written. The extractor is not yet written.
+yet written. The schema and the synthetic generator already carry the
+seven-option structure and the rescue metadata that composition will need to
+populate for real patients, ahead of that work rather than in place of it. The
+extractor is not yet written.
  
 Tagged `v4-single-resource` marks the state before the second resource was
-introduced.
+introduced. Tags since then follow `design-vX.Y`, for the design document
+generation the code's behaviour matches rather than for any file touched; the
+current tag is `design-v6.3`.

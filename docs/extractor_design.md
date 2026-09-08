@@ -1,6 +1,6 @@
 # Extraction Module
 
-Version 4.2. Version history is in `CHANGELOG.md`. Project status and open items are in `STATE.md`.
+Version 4.3. Version history is in `CHANGELOG.md`. Project status and open items are in `STATE.md`.
 
 ## 1. Purpose and scope
 
@@ -61,13 +61,15 @@ Coverage cannot be inferred from NTCP. If the target shifts away from an OAR bet
 
 **Metrics are per block and per plan, on the plan’s own image.** This is a change from version 1, which required metrics on the accumulated dose. Coverage is a property of a plan delivered on a given anatomy, so the judgement is made where the plan is delivered. It follows that no registration, deformation or accumulation is required to produce the inputs to the coverage screen, which is why that screen can run before any composition and prune the strategy space cheaply.
 
-Three requirements:
+Four requirements:
 
 - **Nominal per-block metrics** for every plan, as the primary basis for the screen.
 - **Worst-case per-block metrics** from the robustness evaluation, retained as a sensitivity analysis. They are not accumulated, since the worst scenario in one block need not be the worst in another and a sum of per-block worst cases corresponds to no physical scenario.
-- **The photon arm is included.** Photon dose is recomputed on the rCTs and screened on the same criterion, so it cannot be treated as a planned-dose-only reference.
+- **The photon arm is included.** Photon dose is recomputed on the rCTs and screened on the same criterion, so it cannot be treated as a planned-dose-only reference. This is A10 of the allocator document, inherited from the reference study rather than an amendment to it, corrected there at version 7.
 
-The metric and threshold are V95% below 95 per cent, with further criteria possible; the extractor’s obligation is unchanged either way, since it supplies the metrics and the evaluator applies the criteria.
+- **Rescue plans are extracted like any other plan.** Under the version 7 supervisory decision a non-adapted arm whose plan fails the screen on a block acquires a replan generated on that image at unchanged margin, which carries forward. Each rescue is an additional plan with its own per-block metrics and its own dose grid, so the extraction unit is unchanged but the number of units is not known before the screen has run. The schema must therefore allow a variable number of plans per (patient, arm) rather than the fixed three of an adapted arm and one of a non-adapted arm, and each plan must record whether it is a planned or a rescue plan and on which image it was generated.
+
+**The criterion is the plan acceptance protocol used at treatment planning**, superseding the bare V95% below 95 per cent of versions 1 to 4.2. The extractor's obligation is unchanged in form, since it supplies metrics and the evaluator applies criteria, but the metric list is now longer and runs in two directions that must be kept apart. **Target metrics**, V95% and D5 on the target, extend the screen along the axis it already measures. **OAR metrics**, Dmean and Dmax on the organs driving the endpoints, are supplied regardless because they are useful descriptively, but whether they enter the screen criteria is a separate decision that changes what the primary endpoint means: a screen that fires on OAR grounds triggers rescue for OAR reasons and truncates the upper tail of the non-adapted arms' NTCP distribution. Which metrics to request is open decision 7b of the allocator document, addressed to the clinical partners and the RTTs and gated on decision 19, since the protocol is site-specific.
 
 ## 6. Delivery time
 
@@ -159,6 +161,16 @@ Every metric and every model parameter carries a tag recording whether it is mea
 Two items of version 2 are closed. The coverage criterion is V95% below 95 per cent. Whether the clinical-margin adaptive arm exists is resolved: it does not, so only two plans per block are extracted, the clinical-margin pCT plan and the reduced-margin adapted plan.
 
 **Version 6 note.** The extraction unit is unaffected by the decision to fix the workflow at prescription. Two consequences are worth recording because they are cheap to satisfy now and expensive to retrofit. The non-adapted arms require their pCT plan recomputed on every repeat image, which version 5 also required and which must not be dropped on the grounds that those arms never adapt. And if the hypofractionated schedule is adapted on in-room imaging with a block equal to a fraction, the number of plans per adapted arm rises from three to six, which changes the sizing estimate below; the granularity is open decision 23 in the allocator document.
+
+**Version 7 note.** Three consequences of the rescue decision and one of the XT-NA schedule decision.
+
+- The plan count per patient is no longer fixed in advance. A rescue is an additional plan, bounded above by one per block per non-adapted arm and not predictable before the screen has run. Sizing estimates should carry the worst case alongside the nominal.
+
+- Each plan record must carry its role, planned or rescue, and the image it was generated on, so that a non-adapted arm's piecewise composition is reconstructible from the store rather than inferred.
+
+- The metric list requested from the clinical partners now runs in two directions, target and OAR, per Section 5.
+
+- XT-NA carries one fractionation schedule per patient rather than two, fixed by a clinical eligibility flag, which is required patient data and belongs in the schema alongside the clinical covariates. Allocator A32. The plan count for that arm falls from two to one over both schedules.
 
 - Dose grid dimensions and masked ROI volumes, to be measured on the first exported case before the storage strategy is fixed.
 - Machine constants for the delivery-time model, or confirmation that the RayStation estimate is usable. Belongs with the PARTICLE operating-model question.

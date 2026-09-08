@@ -1,6 +1,6 @@
 # Evaluation Module
 
-Version 5.2. Version history is in `CHANGELOG.md`. Project status and open items are in `STATE.md`.
+Version 6.0. Version history is in `CHANGELOG.md`. Project status and open items are in `STATE.md`.
 
 ## 1. Purpose and scope
 
@@ -32,7 +32,7 @@ The evaluator is the component that builds each patient’s strategy space, and 
 
 **Margin is a property of the arm.** Following the version 6 supervisory decision, the workflow is chosen at prescription and adaptation is a course-level property. The construction rule is therefore a mapping from the arm rather than from a per-block indicator:
 
-- A **non-adapted arm** carries the clinical-margin plan generated on the pCT, for every block. Its dose on blocks after the first is that plan recomputed on the block’s repeat image.
+- A **non-adapted arm** carries the clinical-margin plan generated on the pCT. Its dose on blocks after the first is that plan recomputed on the block’s repeat image, **unless the recomputed plan fails the coverage screen on that block**, in which case the arm carries a replan generated on that repeat image at unchanged margin, which then carries forward to later blocks and is screened again on each of them. This is the version 7 supervisory decision, A24 and A28 to A30 of the allocator document. "Non-adapted" therefore means reactively adapted at clinical margin, not zero replans.
 
 - An **adapted arm** carries the reduced-margin plan generated on the pCT for the first block, and the reduced-margin replan generated on each subsequent block’s repeat image.
 
@@ -40,13 +40,13 @@ The evaluator is the component that builds each patient’s strategy space, and 
 
 Robustness contributes no independent index to the strategy tuple, as in version 5, but because it is fixed by the arm rather than derived from a vector. A free crossing of margin with adaptation would generate plans that could not be delivered.
 
-**What this implies for the option set.** A patient holds four strategies per fractionation scheme and eight over the two schemes, independently of the number of blocks. Version 5 built 2^B adaptation schedules per group and collapsed them to B + 1; both the construction and the collapse are removed. The number of blocks continues to govern how many dose fields must be composed per strategy, and no longer governs how many strategies exist.
+**What this implies for the option set.** A patient holds **seven** strategies, independently of the number of blocks. XT-A, PT-NA and PT-A each carry both fractionation schemes; XT-NA carries one, fixed exogenously by clinical eligibility under A32 of the allocator document, because it represents the treatment the patient would receive under current practice. Version 5 built 2^B adaptation schedules per group and collapsed them to B + 1; both the construction and the collapse are removed. The number of blocks continues to govern how many dose fields must be composed per strategy, and no longer governs how many strategies exist.
 
 **The first block is evaluated on the planning anatomy.** Its contribution to every strategy is the nominal planned dose on the pCT. This is the reference study’s convention and preserves comparability with its decomposition. Its consequence is not symmetric across arms and is declared as A23 in the allocator document; whether to also report the first block evaluated on the first repeat image, as a conservative bound, is open decision 21 there. The evaluator must therefore keep the first block’s dose source configurable rather than hard-wired.
 
 **Mixed strategies are computable and are not options.** A reduced-margin pCT plan recomputed on the repeat images is a valid composition that requires no new plan. It is not a member of the option set presented to the allocator. Whether it is computed as a reported diagnostic, which would separate the margin-reduction benefit from the adaptation benefit within the study, is open decision 22 in the allocator document. The evaluator should be able to compose it on request without that composition entering the option set.
 
-**Consequence for admissibility.** Version 2 recorded the clinical-margin adaptive plan as the fallback when the coverage screen removes the reduced-margin plan on a block. That fallback no longer exists. A block on which the reduced-margin plan fails coverage leaves the non-adapted plan, which may fail for the same anatomical reason, or the photon arms. The count of blocks on which the reduced-margin plan failed is emitted, since it measures how often the licensed margin reduction is not in fact deliverable.
+**Consequence for admissibility.** Version 2 recorded the clinical-margin adaptive plan as the fallback when the coverage screen removes the reduced-margin plan on a block; versions 5 and 6 recorded that no fallback existed. At version 7 the fallback exists for every arm and is rescue at unchanged margin, so nothing is removed and no option set can empty. The count of blocks on which the **reduced-margin** plan failed is still emitted, but it now reads as a diagnostic on scripted replanning rather than on margin deliverability: under A1 and A4 an adapted arm's block plan is optimised on the anatomy it is evaluated on, so the count is zero by construction and a non-zero entry means the objective template failed to produce an acceptable plan. See open decision 26 of the allocator document. The case where a reduced-margin plan cannot be made acceptable at all is A31 there: the adapted arm is absent from that patient's option set from the start.
 
 ## 3. Interface contract
 
@@ -118,7 +118,7 @@ The alternative ordering is computed once on a real case and the difference in g
 
 ### 5.1 Structure
 
-A strategy is the tuple (modality, adaptation, fractionation, technique). The robustness setting is not a component: it is determined by the arm, as specified in Section 2. Adaptation is a boolean scalar rather than a vector over blocks, so each (modality, fractionation) group holds two strategies and each patient holds eight.
+A strategy is the tuple (modality, adaptation, fractionation, technique). The robustness setting is not a component: it is determined by the arm, as specified in Section 2. Adaptation is a boolean scalar rather than a vector over blocks, so each (modality, fractionation) group holds two strategies; with the XT-NA schedule fixed exogenously, each patient holds seven. Rescue is not a component of the tuple either: it is a deterministic consequence of the screen given the anatomy, not a choice, so it changes the dose composed for a strategy without adding strategies.
 
 Composition of a strategy is a weighted sum of cached warped BED fields, with block weights given by the fraction counts. It is an array operation over the masked ROI union and is cheap relative to registration. The number of fields summed is the number of blocks; the number of compositions is the number of strategies, which no longer grows with the number of blocks.
 
@@ -132,52 +132,56 @@ Two things that the collapse carried are lost with it and are recorded so that t
 
 ## 6. Admissibility
 
-Admissibility rests on one enforced screen and one reported diagnostic. They differ in basis, in cost, and in what they do with a failing strategy.
+Admissibility rests on one enforced screen and one reported diagnostic. They differ in basis, in cost, and in what they do with a failing strategy. At version 7 neither removes anything.
 
-| Stage           | Basis                           | Requires registration and accumulation? | Granularity                              | Effect on a failing strategy                   |
-|-----------------|---------------------------------|-----------------------------------------|------------------------------------------|------------------------------------------------|
-| Target coverage | Per-block dose on its own image | No                                      | Per plan, removes families of strategies | Removed: `admissible` set false                |
-| No harm         | Accumulated EQD2, then NTCP     | Yes                                     | Per strategy                             | Counted and reported; the strategy is retained |
+| Stage           | Basis                           | Requires registration and accumulation? | Granularity | Effect on a failing strategy |
+|-----------------|---------------------------------|-----------------------------------------|-------------|------------------------------|
+| Target coverage | Per-block dose on its own image | No                                      | Per plan    | A rescue plan at unchanged margin is substituted from that block onward; the arm is retained |
+| No harm         | Accumulated EQD2, then NTCP     | Yes                                     | Per strategy | Counted and reported; the strategy is retained |
 
-### 6.1 Coverage, judged per block
+### 6.1 Coverage, judged per block, and rescue
 
-Target coverage is a property of a plan delivered on a given anatomy. If the non-adapted plan evaluated on rCT1 falls below the acceptance criterion, that plan would not be delivered for that block, and the judgement requires no accumulation.
+Target coverage is a property of a plan delivered on a given anatomy. If the plan an arm would deliver on rCT*j* falls below the acceptance criterion, that plan would not be delivered, and the judgement requires no accumulation.
+
+**What follows is a substitution.** The arm acquires a replan generated on that image at unchanged margin and unchanged setup error, which carries forward and is screened again on each later block. The evaluator's composition for a non-adapted arm is therefore a piecewise sequence of clinical-margin plans rather than one plan recomputed throughout, and the sequence is determined by the screen rather than chosen. This is the version 7 supervisory decision; Sections 8.1 to 8.6 of the allocator document carry the argument and A24 and A28 to A31 carry the assumptions.
 
 **Consequences.**
 
-- The screen acts on arms, not on individual strategies. A failure of the non-adapted plan at block b removes the non-adapted arm of that modality for the whole course, per schedule. Version 5 stated this as the removal of every strategy whose adaptation vector was false at b; with adaptation reduced to a scalar the family is a single arm. See open decision 24 of the allocator document.
+- The screen removes nothing, so no option set can empty and the strategy count is independent of the anatomy. Version 6 removed a failing arm for the whole course, per schedule; that behaviour is withdrawn.
 
-- The number of coverage evaluations equals the number of plans rather than the number of strategies.
+- **Screen every arm; expect rescues only on the non-adapted ones.** Under A1 and A4 an adapted arm's block plan is optimised on the anatomy it is then evaluated on, so nominal coverage holds by construction. The screen is still run on PT-A and XT-A and the count reported per arm, because A4 requires the property to be demonstrated rather than asserted and a non-zero count there is a scripted-replanning failure, which is open decision 26 of the allocator document. The implementation must not special-case the adapted arms out of the screen.
 
-- The screen runs **before** any composition, so accumulation is performed only for surviving strategies. This is a real ordering saving and is the reason the two stages are kept separate rather than merged.
+- The number of coverage evaluations equals the number of plans, rescue plans included, rather than the number of strategies.
+
+- **The screen no longer prunes before composition.** Versions 2 to 6 justified keeping the two stages separate by the ordering saving: coverage ran first and accumulation was performed only for survivors. There are no survivors to select now, since nothing is removed, and the screen instead determines *which* plan each block contributes. The stages stay separate for a different reason: the screen decides the composition, so it must run before it, and it still requires no registration or accumulation.
 
 - Accumulated coverage is not retained, in any role.
 
-- The criterion is V95% below 95 per cent, and the screen takes a **list** of criteria of which all must pass, since further criteria may be added. The count of strategies removed is emitted per criterion, so that adding one later is a configuration change and its effect is visible separately.
+- **The criterion is the plan acceptance protocol used at treatment planning.** The screen takes a list of criteria of which all must pass, and the count is emitted per criterion, so instantiating the list is a configuration change. Which metrics instantiate it is open decision 7b of the allocator document, now a question for the clinical partners and the RTTs, with target metrics and OAR metrics kept apart because only the second changes what the primary endpoint means.
 
-- Where the reduced-margin plan fails on a block, no conservative adaptive plan remains for that block. The count of such blocks is emitted, since it quantifies how often the licensed margin reduction is undeliverable.
+- **Rescue frequency is a first-class emitted quantity**, per arm, per schedule and per block. It replaces the removal count of earlier versions, and it is the diagnostic that has to exist before the manuscript rests on the no-harm property, since the count of patients with no free option is now zero by construction.
 
 ### 6.2 Worst-case coverage
 
-Worst-case metrics are evaluated **per block and not accumulated**.
+Worst-case metrics are evaluated **per block and not accumulated**. Retained as a sensitivity analysis. It is expected not to fire on the adapted arms, since robust evaluation at the reduced margin is part of plan acceptance; where a reduced-margin plan cannot pass it at plan generation, the arm is absent from that patient's option set rather than removed later, which is A31 of the allocator document.
 
 ### 6.3 No harm
 
-A strategy whose union ΔNTCP against the locked baseline is negative is **counted and reported, not removed**. This revises versions 1 to 4, in which it was removed on the same footing as a coverage failure. The requirement it serves is unchanged: maximising a cohort mean must not make an individual worse than current standard care. What changed is the recognition that removal is not what secures it, and that where removal would change the answer it does harm. The argument is given in Section 8.3 of the allocator design and is not repeated here; the evaluator’s part is that the no-harm computation no longer touches the admissibility flag.
+A strategy whose union ΔNTCP against the locked baseline is negative is **counted and reported, not removed**. This revises versions 1 to 4, in which it was removed on the same footing as a coverage failure. The requirement it serves is unchanged: maximising a cohort mean must not make an individual worse than current standard care. What changed is the recognition that removal is not what secures it. The argument is given in Section 8.3 of the allocator design and is not repeated here; the evaluator's part is that the no-harm computation does not touch the admissibility flag.
 
 **The diagnostic is computed on the union scalar only.** A strategy that worsens one endpoint while improving the others can still be the right choice, and excluding it on a single endpoint would be stricter than the selection rule used everywhere else in the design. Per-endpoint sign violations are counted and reported explicitly, so the cost of the convention is visible rather than hidden.
 
-**Structural consequence.** No harm removes nothing, so it cannot contribute to an empty option set under any circumstances, and coverage is the only route to infeasibility. Version 4 asserted that conclusion while still enforcing the screen, where it did not hold: coverage could remove XT-NA, no harm could then remove every remaining strategy that was worse than an arm the patient could not receive, and Section 6.4 would raise for a patient with a deliverable plan. The conclusion now follows from the design rather than being asserted against it.
+**Structural consequence, unconditional at version 7.** No harm removes nothing and coverage removes nothing, so neither can contribute to an empty option set. Version 6 could establish this only where XT-NA was assignable, and identified the patients whose XT-NA the screen had removed as the exception. There is no such patient now: XT-NA is rescued like any other arm, every patient holds a free assignable option of zero utility, and the dominance argument holds cohort-wide.
 
-**What is emitted.** The count of strategies whose union ΔNTCP is not positive, excluding the reference arm, whose zero is definitional. Under the previous design this count was identically zero by construction. It now measures how often adaptation or a changed schedule fails to reduce the union probability, which is a quantity of independent interest.
+**What is emitted.** The count of strategies whose union ΔNTCP is not positive, excluding the reference arm, whose zero is definitional. It measures how often adaptation or a changed schedule fails to reduce the union probability, which is of independent interest and is distinct from how often such a strategy is selected.
 
-**The baseline’s two roles are separated.** XT-NA serves as the ΔNTCP reference and as an assignable option, and the coverage screen applies only to the second role: the baseline retains its reference role regardless of its own admissibility, so every ΔNTCP in the study remains referenced to the same arm on every patient. The case is expected to be rare in practice, since photon dose is comparatively insensitive to anatomical change in the absence of range error, and the screen is expected to do its real work on the non-adapted proton arm, whose fragility under anatomical change is the premise of the project. The rule is stated so that, should the rare case occur on a real patient, its handling is a recorded design decision rather than a choice made after seeing the result.
+**The baseline's two roles no longer separate.** XT-NA serves as the ΔNTCP reference and as an assignable option. The coverage screen could previously remove the second role while leaving the first; it now rescues instead, so both roles hold for every patient. The reference is redefined accordingly as the photon treatment the patient would receive under current practice: clinical margin throughout, at the schedule clinical eligibility assigns them under A32, with offline rescue where coverage fails. One consequence must be carried into reporting: a rescue improves the reference NTCP, so the zero point of that patient's ΔNTCP moves with the acceptance criterion. The shift is a per-patient constant applied to all seven of their options, so the intra-patient ordering is unaffected and only the level moves.
 
 ### 6.4 Empty option sets
 
-If every strategy for a patient fails the screens, the multiple-choice constraint cannot be satisfied and the problem is infeasible. The evaluator raises and names the patient and the failing screen.
+**Unreachable.** Neither screen removes a strategy, so the multiple-choice constraint is always satisfiable. The only way an option set can shrink is A31, an adapted arm not generated because its reduced-margin plan could not be made robustly acceptable, which is an absence recorded at construction with its reason and cannot remove XT-NA.
 
-No fallback is provided.
+The infeasibility raise is retained as a defensive check on the evaluator's own construction. If it fires it indicates a defect, not a patient.
 
 ## 7. Caching
 
@@ -274,6 +278,26 @@ The rows below are superseded, amended or added by the version 6 decision of the
 | E15 | **New.** The reduced margin is a property of the adapted arm and applies from the first fraction, on the pCT plan. Construction rule of Section 2, mirroring A25 of the allocator document. Single adaptive margin level adopted at supervision. Risk: a free crossing would generate undeliverable plans and an inflated strategy count, and no conservative fallback remains under coverage failure |
 
 E13 is unaffected: A17, which it follows, is retained.
+
+### 10.2 Amendments at version 6
+
+The rows below are superseded, amended or added by the version 7 supervisory decision of the allocator document that an arm which loses target coverage is rescued by offline replanning at unchanged margin, and by the decision that the fractionation schedule of XT-NA is fixed by clinical eligibility. The version numbers differ because this document is one version behind the allocator on the major number; the decision is the same one.
+
+| ID  | Status |
+|-----|--------|
+| E4  | **Retained, with its effect changed.** Coverage is still judged per block on the plan delivered in that block. What follows a failure is a substitution rather than a removal |
+| E6  | **Retained, and its qualification removed.** No-harm enforcement is redundant for every patient, not only where XT-NA is assignable. Open decision 16 of the allocator document is resolved in the affirmative |
+| E12 | **Amended again.** Its risk column stated that a photon reduced-margin plan failing on a block would be removed with no conservative photon plan remaining. Neither half survives: the adapted arms do not fail the nominal screen by construction, and where a reduced-margin plan cannot be made acceptable the arm is absent from the option set at construction, which is A31 of the allocator document |
+| E15 | **Amended.** The reduced margin remains a property of the adapted arm and applies from the first fraction. The clause "no conservative fallback remains under coverage failure" is void: the fallback is rescue at unchanged margin and it applies to every arm |
+
+| ID  | Assumption | Status | Risk |
+|-----|------------|--------|------|
+| E17 | A non-adapted arm's dose on a block is the pCT plan recomputed on that block's image, or, where that fails the screen, a replan generated on that image at unchanged margin which carries forward and is re-screened | Construction rule of Section 2, mirroring A24, A29 and A30 of the allocator document, all confirmed at supervision | The composition for a non-adapted arm is a piecewise sequence of plans whose breakpoints depend on the acceptance criterion. Changing the criterion changes the dose composed, not only which strategies pass, so the criterion must be recorded with every result |
+| E18 | Rescue is a deterministic consequence of the screen and not a component of the strategy tuple | Follows from E17: the screen is applied to the anatomy in hand and admits no choice | The strategy count is independent of the anatomy, which is what keeps the option set fixed at seven and the MCKP structure intact |
+| E19 | A rescue is unpriced on both budgets, so the emitted per-fraction occupancies are unchanged by it | Mirrors A28 of the allocator document, confirmed at supervision and inherited from the reference study | If a rescue were priced, the emitted cost of a non-adapted arm would become anatomy-dependent. The formulation would still hold, since costs are per patient per option, but XT-NA would cease to be free and the no-harm property would revert to empirical |
+| E20 | XT-NA carries one fractionation schedule per patient, supplied as an eligibility flag in the patient record | Mirrors A32 of the allocator document | The flag is required input. Where it is hypofractionated, the numeraire for that patient is a hypofractionated arm and every ΔNTCP they carry is referred to it |
+
+E13 is unaffected: A17, which it follows, is retained and is part of the argument for E19.
 
 ## Appendix F. Fractionation
 

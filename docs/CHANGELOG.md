@@ -7,12 +7,110 @@ specification during retrieval and reading.
 **Reading rule.** Assumption and open-decision identifiers cited in entries for
 superseded versions refer to the numbering *of that version*. Where an identifier
 has since been reused for different content, this is marked inline. The live
-registers are authoritative: allocator Sections 11 and 11.1 (assumptions) and 12
-(open decisions), evaluator Sections 10 and 10.1, road Section 4.8 (open problems).
+registers are authoritative: allocator Sections 11, 11.1 and 11.2 (assumptions)
+and 12 (open decisions), evaluator Sections 10, 10.1 and 10.2, road Section 4.8
+(open problems). Where an amendment subsection conflicts with the original row
+above it, the amendment governs, and the later amendment governs the earlier.
 
 **Section numbering.** Removing the history sections leaves numbering holes at the
 end of each specification document. Existing numbers were preserved rather than
 compacted, so cross-document pointers of the form "allocator 10.5" remain valid.
+
+---
+
+# Version 7, all four documents
+
+Road 7.0, allocator 7.0, evaluator 6.0, extractor 4.3. Two supervisory decisions
+and one factual correction. Both majors move together because one decision amends
+both registers, which is what the lockstep convention exists for.
+
+**Decision 1, rescue replaces removal.** An arm whose plan falls below the
+acceptance criterion on a repeat image is rescued by an offline replan at
+**unchanged margin and unchanged setup error**, which carries forward to later
+blocks and is screened again on each of them. The coverage screen removes nothing,
+on any arm. Rescue is unpriced on both budgets, since an offline replan adds no
+in-room minutes. All three of these are the reference study's own procedure.
+
+**Decision 2, the XT-NA schedule is exogenous.** XT-NA carries one fractionation
+schedule per patient, fixed by clinical eligibility rather than chosen by the
+optimisation, because XT-NA represents the treatment the patient would receive
+under current practice. The option set falls from eight strategies per patient to
+**seven**.
+
+**Correction.** A10 is **inherited** from Borderías-Villarroel et al. rather than
+an amendment to it. That study rescues any arm that loses coverage, the photon arm
+included, which requires photon dose to be recomputed on the repeat images.
+Confirmed by one of its authors. Versions 1 to 6.4 carried the opposite reading
+and built the "fifth difference" of allocator Section 2 on it; that difference is
+withdrawn and plan admissibility moves to "what to keep". Continuity is stronger
+than the documents claimed, not weaker: the derivation of allocator 6.5 recovers
+the reference study's break-even condition analytically and requires the arms on
+both sides to be constructed alike, which they are.
+
+| Change | Where |
+| --- | --- |
+| Plan admissibility moved from the differences to "what to keep"; the fifth difference withdrawn with its reasoning | allocator 2 |
+| Option set stated as seven, with XT-NA contributing one strategy rather than two | allocator 5.1, 10.1; evaluator 2, 5.1; road 4.1 |
+| 8.2 rewritten around substitution rather than removal: six consequences, the rescue-frequency diagnostic, the coupling of the numeraire to the acceptance criterion, and the criterion restated as the plan acceptance protocol | allocator 8.2 |
+| "No conservative fallback exists" deleted, in all four places it appeared. The fallback is rescue at unchanged margin and it exists for every arm | allocator 8.2, A14; evaluator 2, 6.1, E15; road 4.1, 5.10 |
+| 8.3 no-harm redundancy made unconditional: version 6's qualification "wherever XT-NA is assignable" is void, since no patient loses XT-NA | allocator 8.3; evaluator 6.3; road 5.10 |
+| 8.4 empty option sets made unreachable through screening. The only remaining route is A31, an adapted arm not generated, which cannot empty a set | allocator 8.4; evaluator 6.4 |
+| 8.6 rewritten: reference arm and default arm never separate, and the reference is redefined as the photon treatment the patient would receive under current practice. Four reported counts rather than three | allocator 8.6; evaluator 6.3 |
+| Paragraph added stating that the two budgets price online adaptation only | allocator 9 |
+| Screen run on every arm including the adapted ones, with the count reported per arm, since A4 requires the property to be demonstrated and a non-zero count there is a scripted-replanning failure | allocator 8.2; evaluator 6.1; road 5.10 |
+| Fourth extraction requirement added for rescue plans; the metric list split into target and OAR directions; version 7 note added | extractor 5, 15 |
+| Plan budget: 16 per patient becomes 15 before rescues, each rescue an additional plan, bounded by one per block per non-adapted arm | road 4.3, F.2, F.8 |
+| Option-set diagnostics entry rewritten around rescue frequency | road 5.12 |
+| Margin-isolation subgroup recorded: where a non-adapted arm is rescued at every block its contrast with the adapted arm is a pure margin contrast, reported with the patient count it rests on, and not pursued further. The coherent missing cell, clinical margin with systematic adaptation, is not added and could never be selected in any case | road 4.1 |
+
+**Assumptions.** A10 corrected in place. Allocator 11.2 added: A12, A14, A21, A22,
+A24 and A27 amended, retired or made unconditional; A28 (rescue unpriced), A29
+(rescue carries forward and is re-screened), A30 (rescue does not change the
+margin), A31 (an adapted arm that cannot be made robustly acceptable does not
+exist for that patient) and A32 (XT-NA schedule exogenous) added. Evaluator 10.2
+added: E4, E6, E12 and E15 amended; E17 to E20 added.
+
+**Open decisions.** Closed: 24 (all three sub-questions), 16 with A12, 17 with A22,
+18 as treatment D on the XT-NA arm with A and B withdrawn. Opened and closed in the
+same round: 27, the cost and persistence of a rescue. Reframed and reassigned: 7b,
+from supervision to the clinical partners and the RTTs, gated on 19. Raised in
+weight: 26, now the only route by which plan quality can differ systematically
+between arms, since the worst-case guarantee is secured at plan generation rather
+than at evaluation.
+
+**Terminology.** "Non-adapted" now means reactively adapted at clinical margin. The
+label is retained for continuity with the reference study and must be defined on
+first use in the manuscript, since a reader will otherwise take it to mean zero
+replans.
+
+**What did not change.** The formulation and the algorithm. Costs remain per patient
+per option and are unchanged, since rescue is unpriced, so `solve.py` and
+`dominance.py` need no change. Rescue is deterministic given the anatomy and adds
+no strategies, so the MCKP structure is intact and the allocation remains a choice
+among fully specified prescription-time workflows. The closed forms of 6.5 are
+unaffected: a rescue shifts a patient's utilities by a common constant, which
+leaves intra-patient orderings, the step ratio and pen\* untouched and moves only
+the level of ΔNTCP.
+
+**Superseded by this round.** The "known behaviour, not a defect" note recorded with
+the version 6 code migration, that a patient holds two options free on both budgets
+and `pareto` keeps only one of them, describes a situation that no longer exists:
+A27 is retired and each patient holds exactly one free option. The note should not
+be read as current.
+
+## Code, required not done
+
+The code still implements version 6 and is now behind the documents by a structural
+change rather than by housekeeping. `design-v6.2` remains the tagged reference; the
+next tag is `design-v7.0`, to be cut at the commit that completes the following.
+
+| Required change | Where |
+| --- | --- |
+| Emit seven options per patient rather than eight, with the XT-NA schedule taken from a new per-patient `hypo_eligible` flag | `generator/synth.py`, `core/schema.py` |
+| Coverage screen changes from filter to substitution: a non-adapted arm's composition becomes a piecewise sequence of clinical-margin plans, breakpoints set by the screen and carried forward | `evaluator/` |
+| Emit rescue frequency per arm, per schedule, per block. Retain `no_free_option()` as a regression check expected to read zero | `evaluator/`, `allocator/report.py` |
+| Rewrite `test_admissibility`. Every assertion that a coverage failure removes an arm now asserts the opposite; a new test that XT-NA is present in every patient's option set after screening is load-bearing | `tests/` |
+| No change | `solve.py`, `dominance.py` |
 
 ---
 

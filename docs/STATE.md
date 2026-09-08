@@ -1,18 +1,30 @@
 # Project state
 
-**Last updated:** 2026-09-04, at tag `design-v6.2`, by choice. This round adds
-`extractor_design.md` 4.2 to the two documents already moved: dose provenance
-now stated in all three of allocator (decision 25 in 12), evaluator (E16) and
-extractor (Section 11), closing that item everywhere it was open. No tag is
-being cut for any of this; `design-v6.2` stays the reference point until
-directed otherwise. Earlier this same run: `allocator_design.md` to 6.4
-(decisions 21, 22 and the denominator convention closed in the text, not only
-in this file; 12.1 corrected to reflect treatment C's exclusion; decisions 25
-and 26 registered, previously tracked only in this file; Appendix A deleted)
-and to 6.3 before that (the pen\* closed form, 6.5); `evaluator_design.md` to
-5.2 (E16). 6.2 itself, the last tagged state, closed T12/T13, implemented
-T14/T15, corrected three claims, retired Section 10.3. Detail for every round
-in `CHANGELOG.md`.
+**Last updated:** 2026-09-08, at tag `design-v6.3`, after the supervisory reply of
+early September 2026 and the code round that followed it, same day. The reply
+changes the coverage screen from a removal mechanism to a rescue mechanism and
+fixes the fractionation schedule of XT-NA exogenously. Both amend registers in
+two documents at once, which is the criterion version 6 used, so the document
+round was major: `allocator_design.md` to **7.0**, `evaluator_design.md` to
+**6.0**, `ROAD_TO_PAPER_1.md` to **7.0**, `extractor_design.md` to **4.3**.
+These four, `CHANGELOG.md`, and this file are committed together in one
+commit, separate from and after the four code commits, since the documents
+were finalised before the code implementation began but had not been
+committed until now. Detail for every round in `CHANGELOG.md`.
+
+**Code tags track behaviour, not the document version number, and the two are
+not the same count.** A code round is tagged `design-vX.Y` for the document
+generation its *behaviour* matches, X, with Y as a sub-counter for code-only
+increments within that generation; it is not bumped to a document's version
+number merely because the code touches something that document also covers.
+The code round changed the schema and the synthetic generator to carry the
+version 7 option-set structure and rescue metadata, but the evaluator's dose
+composition and coverage screen, the part of the design that actually
+changed *behaviourally* at version 7, are untouched, so the code still
+*behaves* like version 6 throughout. **Tagged `design-v6.3`**, the next patch
+in the v6 series, not v7.0. Commit history is in Section 6. The first
+`design-v7.x` tag is earned once the evaluator implements the rescue
+substitution; its number is not decided now.
 
 Rewrite this file whenever a document version, an open decision or a code
 milestone changes, and rewrite it *before* bumping a document version rather than
@@ -28,33 +40,36 @@ which now also inherits Config 2 and the receding-horizon reallocation.
 
 ## 2. Document set
 
+All six live in `docs/` at the repository root, alongside `README.md` and
+`src/tps5d/`; see `README.md`'s Structure section.
+
 | Document | Version | Owns |
 | --- | --- | --- |
-| `ROAD_TO_PAPER_1.md` | 6.1 | Scientific question, hypothesis, arm set, uncertainty budget, plan budget, endpoint policy, what the paper claims. Open problems register (4.8). Appendix F, single copy |
-| `allocator_design.md` | 6.4 | Optimization problem, algorithm, shadow prices, step-ratio threshold, policy comparison. Assumptions register (11, amended at 11.1) and open decisions (12) |
-| `evaluator_design.md` | 5.2 | Dose composition, accumulation ordering, EQD2 conversion, NTCP evaluation, admissibility screens, strategy construction. Assumptions register (10, amended at 10.1) |
-| `extractor_design.md` | 4.2 | Ingest, registration, storage, target metrics, plan complexity, ROI naming, provenance |
+| `ROAD_TO_PAPER_1.md` | 7.0 | Scientific question, hypothesis, arm set, uncertainty budget, plan budget, endpoint policy, what the paper claims. Open problems register (4.8). Appendix F, single copy |
+| `allocator_design.md` | 7.0 | Optimization problem, algorithm, shadow prices, step-ratio threshold, policy comparison. Assumptions register (11, amended at 11.1 and 11.2) and open decisions (12) |
+| `evaluator_design.md` | 6.0 | Dose composition, accumulation ordering, EQD2 conversion, NTCP evaluation, admissibility screens, strategy construction. Assumptions register (10, amended at 10.1 and 10.2) |
+| `extractor_design.md` | 4.3 | Ingest, registration, storage, target metrics, plan complexity, ROI naming, provenance |
 | `CHANGELOG.md` | - | Version history for all four. Kept in the repository, not in the project knowledge |
 
-The evaluator is one version behind the allocator by convention, not by
-oversight: the two registers are amended by the same decision, recorded as
-version 6 in one and version 5 in the other. That lockstep is on the major
-number only. Allocator 6.2 is a housekeeping and test bump internal to that
-document, touching neither a shared decision nor the evaluator, so the minor
-numbers (6.4 against 5.2) are not expected to match going forward. This
-round moved both, for unrelated reasons on each side, which is itself
-evidence the two numbers were never going to track each other.
+The evaluator is one version behind the allocator by convention on the major
+number only. This round moves both majors together, which is what the convention
+is for: one supervisory decision amends both registers.
 
 ## 3. Design, in one paragraph
 
 The treatment choice is made at prescription on the planning CT. Each patient
-carries four workflows per fractionation schedule, XT-NA, XT-A, PT-NA and PT-A,
-and eight over the two schedules. An adapted arm adapts at every block and carries
-a reduced-margin plan from the first fraction; a non-adapted arm carries the
-clinical-margin pCT plan for the whole course, recomputed on each repeat image.
-There is no per-block adaptation decision. Two resources are priced: proton
-machine time and photon adaptation time. XT-NA consumes neither and is both the
-ΔNTCP reference arm and the always-assignable fallback.
+carries **seven** options: XT-A, PT-NA and PT-A under each of two fractionation
+schedules, plus one XT-NA whose schedule is fixed exogenously by clinical
+eligibility. An adapted arm adapts systematically, at every block, at reduced
+margin from the first fraction. A non-adapted arm carries the clinical-margin pCT
+plan recomputed on each repeat image and is **rescued** by an offline replan at
+unchanged margin wherever coverage fails, so "non-adapted" means reactively
+adapted rather than never adapted. No screen removes anything. Two resources are
+priced, proton machine time and photon adaptation time, and both price online
+adaptation only: an offline rescue adds no in-room minutes and is unpriced, which
+is the reference study's accounting.
+XT-NA consumes neither budget, is assignable for every patient, and is both the
+ΔNTCP reference arm and the always-available default.
 
 ## 4. Open decisions
 
@@ -63,38 +78,20 @@ machine time and photon adaptation time. XT-NA consumes neither and is both the
 | ID | Question |
 | --- | --- |
 | 11 / A3 | Photon adaptation may be rationed. Revises the version 4 decision that photon capacity is unconstrained |
-| 16 / A12 | No-harm screen becomes a reported diagnostic rather than an enforced removal. Carries an ethical framing |
-| 17 / A22 | Referral threshold applied to ΔNTCP against the reference arm even where that arm is not deliverable |
-| 18 | How to treat a free hypofractionated photon arm. Treatment C, a third capacity row for photon stereotactic delivery, is excluded: a five-fraction course releases linac time rather than consuming it, and any scarcity on that side lies in the adaptation, already priced by C_XT. A, B and D remain live and none is adopted |
-| 24 | Handling of the coverage screen: whether single-block failure should remove an arm for the whole course, and what the fallback is when XT-NA itself is removed |
-| 7b | Whether criteria beyond V95% below 95 per cent enter the coverage screen. Moved here from the candidate list: it defines when the screen fires and belongs with 24 |
 | - | Confirmation that paper 1 answers which patient receives which workflow, and that the right-time framing of the work package belongs to a subsequent publication rather than specifically the second |
 
-Decisions 24, 16, 17, 11 and 7b form one question seen from five angles: what
-protects the individual patient when the free option is not deliverable. A3 is
-part of it and not an aside, since a fallback is a problem only because photon
-capacity is rationed: A21 guarantees a free option, XT-A is not free, so a
-commitment on C_XT is incurred the moment XT-NA is removed.
+**Closed by supervision, September 2026.** The reply of early September resolved
+five items at once and they are recorded here with their resolution rather than
+deleted, since the reasoning is what the manuscript will need.
 
-**Put to supervision on 31 August 2026**, in one message: the five above, plus 18
-and the scope confirmation. Nothing in this section is settled until the reply
-arrives, and no manuscript text should be written against any of it in the
-meantime.
-
-On A and B, for the record, since the distinction is easy to state wrongly. Both
-are constants chosen by us and both are reported as a sweep, so they do not differ
-in being fixed against parametric. They differ in that ε filters the option set
-before the solve while π reprices inside the objective, and in that ε compares the
-hypofractionated arm against one nominated comparator while π compares against
-every alternative available to that patient. For a patient whose best alternative
-is that comparator, filtering at ε and penalising at π = ε select the same
-strategy; they diverge only on the patients where the choice between A and B
-changes a result. A third difference is not recorded in allocator 12.1: π enters
-the objective, so it changes which options lie on the convex hull and therefore
-the duals, making λ_PT and λ_XT functions of π. Reportable as λ(π) if π is a
-sweep; concealed if a single value is ever adopted. A and D are not mutually
-exclusive: D fixes the option set on clinical grounds and B or A then report how
-much of the population mean is fragile to the cost of a schedule change.
+| ID | Resolution |
+| --- | --- |
+| 24 | An arm that fails the coverage screen is **rescued** by offline replanning at unchanged margin and continues. Nothing is removed, on any arm. All three sub-questions close: a single-block failure does not remove the arm; there is no fallback problem when XT-NA fails, since XT-NA is rescued like anything else; and the count of patients with no free option is zero by construction, so the no-harm property is structural rather than empirical. Rescue frequency replaces that count as the diagnostic to be produced. A24 amended, A21 becomes structural, A22 void, A27 retired, A28 to A31 added |
+| 16 / A12 | No-harm remains a reported diagnostic rather than an enforced removal, now unconditionally: the one case where enforcement changed the answer was a patient whose XT-NA the screen had removed, and no such patient exists |
+| 17 / A22 | Closed with 16. No patient's reference arm is unassignable, so the referral rule has no case to qualify |
+| 18 | Treatment D applied to the XT-NA arm alone: XT-NA carries one schedule per patient, fixed by clinical eligibility. No threshold and no penalty anywhere; A and B withdrawn, C stays excluded. The proton arms carry both schedules with no threshold, since hypofractionation is beneficial for protons through the capacity it frees irrespective of ΔNTCP. Registered as A32 |
+| 7b | Reframed, not closed. The criterion is the plan acceptance protocol used at treatment planning, which supersedes the bare V95% below 95 per cent. Which metrics instantiate it is now a question for the clinical partners and the RTTs, moved out of this table |
+| 27 | Opened and closed in the same round. A28: a rescue is unpriced on both budgets, which is the reference study's own accounting. A29: a rescue plan carries forward and is re-screened on later blocks. Both confirmed, so A21 is structural without qualification and nothing in the version 7 design rests on a candidate assumption |
 
 Not a decision, recorded so that it stops reappearing as one: fourth-year funding
 rests on a verbal assurance from Sterpin that money can be found if needed. No
@@ -108,30 +105,32 @@ M13.
 | 3 | PARTICLE operating model: hours per day, rooms, beam sharing, clinical slot length. Which Δτ components are extractable from RayStation plan data |
 | 12 / A15 | Plausible range for Δτ_XT, and whether photon plan verification is measurement-based or computational within a session |
 | 13 | Reference value C_XT^ref |
-| 25 | Which RayStation dose engine generates the proton plans, analytical pencil beam or Monte Carlo, and the reporting conventions for both modalities: RBE weighting, dose-to-water or dose-to-medium, grid resolution and origin. The engine choice bears on the premise of the study, since analytical dose is least reliable in the heterogeneous abdomen and the error is systematic rather than random, so it does not average out over the cohort and it falls on the arm whose degradation under anatomical change the paper measures. Registered in allocator 12, evaluator 10 (E16) and extractor 11, at 6.4/5.2/4.2, previously tracked only here |
+| 7b | **Which metrics instantiate the coverage screen.** Two directions, not equivalent, and both to be requested from the RTTs. *Target metrics*, V95% and D5 on the target, extend the screen along the axis it already measures and change nothing structural. *OAR metrics*, Dmean and Dmax on the organs driving the endpoints, would let the screen fire on normal-tissue grounds, so rescue would trigger for OAR reasons and the upper tail of the non-adapted arms' NTCP would be truncated; the study would then report adaptation benefit conditional on standard-of-care rescue, which is defensible but is a different result. Collect both regardless, since the OAR metrics are useful descriptively; deciding which enter the screen is separate. Gated on 19, since the protocol is site-specific |
+| 25 | Which RayStation dose engine generates the proton plans, analytical pencil beam or Monte Carlo, and the reporting conventions for both modalities: RBE weighting, dose-to-water or dose-to-medium, grid resolution and origin. The engine choice bears on the premise of the study, since analytical dose is least reliable in the heterogeneous abdomen and the error is systematic rather than random, so it does not average out over the cohort and it falls on the arm whose degradation under anatomical change the paper measures. Registered in allocator 12, evaluator 10 (E16) and extractor 11 |
+| - | Clinical eligibility for hypofractionation, per patient. Required data under A32, since it fixes the schedule of the XT-NA arm. Depends on the protocol for the indication and therefore on 19 |
 | - | Whether short-course patients in the cohort have any repeated imaging. Determines whether the hypofractionated schedule has blocks at all, and therefore whether decision 23 arises |
 
 ### Split
 
 | ID | Question | Split how |
 | --- | --- | --- |
-| 10 | Endpoint selection, constrained to models admitting an explicit dose-per-fraction correction. Recorded in allocator 12 and road 4.8 as item 3 of the open problems register, but absent from this table until now | Candidate proposes the model family, Sterpin decides; gated on 19 |
+| 10 | Endpoint selection, constrained to models admitting an explicit dose-per-fraction correction. Recorded in allocator 12 and road 4.8 as item 3 of the open problems register | Candidate proposes the model family, Sterpin decides; gated on 19 |
 | 19 | Anatomical site: pancreas or adrenal | Partners indicate which cases exist; Sterpin judges whether they are suitable |
-| 23 | Block granularity for the hypofractionated schedule. Blocks equal to fractions gives five replans and 22 plans per patient; coarser blocks restore parity at 16 but model adaptation less often than the photon literature reports | Candidate proposes, Sterpin decides, conditional on the partner answer on repeated imaging |
+| 23 | Block granularity for the hypofractionated schedule | Candidate proposes, Sterpin decides, conditional on the partner answer on repeated imaging |
 
 ### Candidate, unblocked
 
 | ID | Question |
 | --- | --- |
 | 20 | Per-replan cost accounting as a sensitivity bound on A16 and A19 |
-| 26 | Whether the replans required by the adapted arms are producible without manual intervention. PT-A and XT-A adapt at every block, so each patient needs one fresh inverse optimisation per block per adapted arm, not a recomputation of an existing plan on new anatomy as in the non-adapted arms. Decision 23 fixes the count at 16 or 22 plans per patient. If each replan requires an operator to adjust objectives until the plan is acceptable, plan quality becomes a function of effort spent, effort is not constant across arms, and the difference enters ΔNTCP as a confounder on the primary endpoint. The question is therefore whether a fixed objective template can be scripted in RayStation and applied without intervention, and whether the resulting plans are clinically plausible. Raised in `dc18_timeline.docx` §8.3 as an argument for option 4 and left without an owner when that option was dropped. Registered in allocator 12 at 6.4, previously tracked only here |
+| 26 | Whether the replans required by the adapted arms are producible without manual intervention. Its weight rose at version 7. The worst-case coverage variant is now prevented at plan generation rather than detected at evaluation, so the adapted arms are guaranteed acceptable by an iteration loop while the non-adapted arms are recomputations with no iteration. Effort is therefore not constant across arms and enters ΔNTCP as a confounder on the primary endpoint. It is now the only route by which plan quality can differ systematically between arms. What protects the endpoint is a fixed acceptance rule applied identically to every arm and stated in Methods, not the quality of the plans. Also unresolved: who does the planning |
 
 **Closed by the doctoral candidate, August 2026.**
 
 | ID | Decision | Reason recorded |
 | --- | --- | --- |
 | 21 | First block evaluated on the planning anatomy, for every arm | The convention of the reference study, followed for comparability. The distortion favours the reduced-margin arms and scales as one over the number of blocks; its direction is known, its size is not measured |
-| 22 | The reduced-margin non-adapted diagnostic is not computed | A reduced-margin plan delivered without adaptation is clinically incoherent. Excluded knowingly: the margin-reduction and adaptation components of the benefit must therefore be separated by reference to the published lung cohort rather than within this cohort |
+| 22 | The reduced-margin non-adapted diagnostic is not computed | A reduced-margin plan delivered without adaptation is clinically incoherent. Unchanged at version 7 and reinforced: the coherent missing cell is clinical margin with systematic adaptation, and supervision declined to add it, so the margin and adaptation components are still separated by reference to the published lung cohort |
 | - | Displaced patients are retained in the denominator of the cohort mean | Comparability with the reference study, which divides by 14 throughout. To be stated in methods, since it makes the mean an intention-to-treat quantity over the referred population rather than over the treated one |
 
 Resolved and recorded for reference: 14 (heuristic ranking convention), 15 (ILP
@@ -139,18 +138,19 @@ as reference solver).
 
 ## 5. The blocking chain
 
-Decision 19 (site) gates decision 10 (endpoint selection), which gates the entire
-fractionation axis. Two facts tighten the chain: fractionation-correctability of
-the endpoint models at a candidate site is a criterion for choosing the site, not
-only a consequence of having chosen it; and at pancreas the two protocol schedules
-differ in elective target coverage, so comparing them confounds fraction size with
-target volume.
+**Decision 19 (site) is now the only heavy blocker.** It gates decision 10
+(endpoint selection), which gates the entire fractionation axis; it gates the
+protocol criteria that instantiate 7b; and it gates the hypofractionation
+eligibility flag that A32 requires as data. Two facts tighten the chain:
+fractionation-correctability of the endpoint models at a candidate site is a
+criterion for choosing the site, not only a consequence of having chosen it; and
+at pancreas the two protocol schedules differ in elective target coverage, so
+comparing them confounds fraction size with target volume.
 
-Decision 24 is second in weight. The count of patients for whom neither XT-NA
-under the standard schedule nor XT-NA under the hypofractionated schedule survives
-the coverage screen is what makes the no-harm property empirical rather than
-structural. No manuscript claim should rest on that property before the count
-exists.
+Decision 24 was second in weight and is closed. The count that made the no-harm
+property empirical is zero by construction, so no manuscript claim waits on it.
+What replaces it as the number to produce is rescue frequency, which is a study
+output rather than a precondition for writing.
 
 ## 6. Code
 
@@ -159,123 +159,163 @@ Package `tps5d` in the RAPTORproject repository, `src/tps5d/` with `core`,
 PowerShell. Implemented: `schema.py`, `solve.py`, `dominance.py`, `policies.py`,
 `report.py`, `figures.py`, `synth.py`, `evaluator/ntcp.py`,
 `evaluator/registry.py`. Exact solver `scipy.optimize.milp` (HiGHS), `solve_dp`
-retained as an independent cross-check at C_XT = 0.
+retained as an independent cross-check at C_XT = 0. `scripts/step_ratio.py` is
+deleted, as recorded previously.
 
-**The code implements the version 6 design.** Tagged `design-v6.2`; the
-allocator document has since moved to 6.4, the evaluator to 5.2 and the
-extractor to 4.2, none of it a code change. No new tag is cut this round, by
-explicit instruction rather than by delay: `design-v6.2` remains the tagged
-reference until the candidate directs otherwise.
+**Current state, tagged `design-v6.3`.** Behaviourally the code is still the
+version 6 design throughout: dose composition and the coverage screen are
+untouched, deliberately, pending the first real patient imaging. What
+changed in this tag is structural, in `core/schema.py` and
+`generator/synth.py`, readying the codebase for the evaluator work without
+pre-empting it:
 
-`dominance.py` and `solve.py` are unchanged since version 6: the hull
-reduction they implement is what makes the greedy LP ordering valid, not the
-collapse over adaptation counts that version 6 retired. `scripts/step_ratio.py`
-is deleted.
+- `generator` emits **seven** options per patient with the photon adapted arm
+  present (five without it), not eight. XT-NA's schedule is drawn from a
+  synthetic `hypo_frac` split standing in for the per-patient
+  clinical-eligibility flag of A32.
+- Every strategy carries an optional `block_plans: list[BlockPlan]` (new
+  record: `block_index`, `role` ∈ {planned, rescue}, `source_image`),
+  populated by the generator for non-adapted arms via a renewal process
+  (`_rescue_sequence`: each block fails independently at `p0 · decay**k`,
+  `k` the rescues already incurred by that arm; `p0 = 0.05`, `decay = 0.5`,
+  both arbitrary placeholders per open decision 27, not values). Adapted
+  arms carry the trivial all-planned sequence, enforced by
+  `Strategy.__post_init__` rather than assumed. `block_plans` is empty by
+  default, so every pre-version-7 call site is unaffected.
+- `report.rescue_counts(cohort)` summarises the sequence: rescue count by
+  arm, by block, and `n_modelled` (strategies actually carrying
+  `block_plans`, so a cohort built without them, as several fixtures are,
+  reports zero rather than a false all-clear).
+- `solve.py` and `dominance.py` needed no change and received none; the
+  proton-chain argument for why the retired duplicate XT-NA never affected
+  any hull or LP result was checked directly against `dominance.pareto`'s
+  tie-break, not left as a claim.
+- `test_admissibility.py` needed **no** change: its content is the
+  admissibility/dominance mechanism, orthogonal to rescue. Two new files
+  instead, `tests/test_schema.py` (`BlockPlan` and `block_plans` validation)
+  and `tests/test_generator.py` (the rescue renewal process, including a
+  Monte Carlo check that `decay` actually reduces a second rescue's
+  probability; the seven/five-option count; the XT-NA single-schedule
+  guarantee).
+- Along the way, three existing tests turned out to assert an invariant that
+  is false in general under A32 —
+  `test_p0_uses_no_adaptation_and_the_standard_schedule`,
+  `test_p1_keeps_the_standard_schedule` (`test_policies.py`), and
+  `test_arm_label_carries_the_scheme_when_it_is_not_standard`
+  (`test_report.py`) — and passed only because the default seed happened to
+  draw zero hypo-eligible patients (≈94 % chance of not being that lucky at
+  `hypo_frac = 0.3`, n = 8). All three now force `hypo_frac` to a
+  deterministic endpoint rather than relying on the seed; no allocator logic
+  changed, only what the assertions claim.
 
-**Test count.** 164 at the last count, of which 133 in the seven files
-touched this round (`test_admissibility`, `test_lp`, `test_policies`,
-`test_report`, `test_solve`, `test_threshold`, `test_two_resource`), plus 31
-in `test_ntcp`/`test_registry`, untouched and not re-run this round. Adding
-T14's 72 parametrized cases to `test_threshold.py` brings the total to **236**,
-all passing on SciPy 1.17.1; SciPy 1.18.0, the environment this was last
-confirmed on, should be re-checked before the next commit.
+What the evaluator itself still needs, once real imaging is available, is
+recorded as a next action in Section 7 rather than here, since it is blocked
+on the same data dependency as the science items there.
 
-**Fixed this round, `allocator/report.py`.** `dominance_counts` anchored the
-proton axis at the origin only by accident, through the same filter that
-selects the chain, and never anchored the photon axis at all: two paid photon
-rungs are mutually non-dominated by construction of `pareto`/`hull` on two
-points, so a rung genuinely LP-dominated by a mixture of the free base and the
-other rung was silently kept. Confirmed with an adversarial two-rung
-construction before the fix (`n_lp_dominated` read 0, should have read 1) and
-after (reads 1); the full suite is unaffected. `solve_exact`/`solve_lp` were
-never exposed to this, since they solve the full model directly without any
-hull pre-reduction; the effect was confined to the diagnostic count.
+**Test count.** 260 (236 plus the 24 new), all passing: confirmed in the
+working sandbox on SciPy 1.17.1, by Tommaso in the project's own conda
+environment, and independently at each of the four commits below in
+sequence (236 → 245 → 245 → 260 → 260), by applying the four patches to a
+clean checkout of `design-v6.2` and running the suite after each.
+
+**Committed, four commits, `design-v6.3` tagged at the fourth.**
+
+1. `core/schema.py` + `tests/test_schema.py` — 245 passing
+2. `generator/synth.py` — 245, unchanged, `test_generator.py` not added yet
+3. `allocator/report.py` + `tests/test_generator.py` — 260 passing
+4. `tests/test_policies.py` + `tests/test_report.py`, the three-assertion fix
+   — 260, unchanged in count
+
+Each of the four is independently green; the qualification given at proposal
+time was overstated; the only real limit is granularity, not greenness:
+`test_generator.py` does not exist until commit 3, so bisecting a failure to
+commit 2 alone has no dedicated test file to run against it yet, since that
+file exercises both the generator and `report.rescue_counts` together.
+
+**Fixed in the previous round, `allocator/report.py`.** `dominance_counts`
+anchored the proton axis at the origin only by accident and never anchored the
+photon axis at all, so a rung genuinely LP-dominated by a mixture of the free
+base and the other rung was silently kept. Confirmed with an adversarial two-rung
+construction before and after the fix. `solve_exact`/`solve_lp` were never
+exposed to this; the effect was confined to the diagnostic count.
 
 **Dose provenance.** All dose in paper 1 is computed in RayStation and imported,
-photon and proton alike, chosen for throughput given the plan count implied by
-decision 23. OpenTPS performs accumulation, evaluation and allocation and
-calculates no dose. The photon CCC implementation in OpenTPS is therefore not on
-the critical path of this study, and the contribution to D4.1 is entirely
-evaluation-side. Written into `evaluator_design.md` as E16 at 5.2 and into
-`extractor_design.md` at 4.2, in Section 11 (Provenance), not Section 1 as
-guessed here previously. Two consequences remain registered as open decisions
-25 and 26, now in `allocator_design.md` 12 as well as here.
-
-**T12, T13 closed; T14 and T15 implemented.** T12 tested an outcome the record
-already makes unrepresentable by construction and is retired void: no test
-could have failed it. T13's only checkable half, the reference-study ladder,
-is T1; the other half had no surviving version 5 implementation to check
-against, so it is absorbed rather than written. T14 is implemented and
-passing, scoped to a single fractionation scheme: allocator 6.5 and road 1
-both state the closed form as a per-scheme statement, so T14 checks it there
-and not against the pooled two-scheme proton frontier, which the allocator
-resolves directly rather than through a closed form. T15, the two-resource
-swap check that lived only in `test_two_resource.py`'s own docstring under a
-label that collided with allocator 5.4's own T10, is now registered under its
-own number in both places.
+photon and proton alike. OpenTPS performs accumulation, evaluation and allocation
+and calculates no dose. The photon CCC implementation in OpenTPS is therefore not
+on the critical path of this study, and the contribution to D4.1 is entirely
+evaluation-side. Recorded as E16 in the evaluator and in extractor Section 11.
 
 ## 7. Next actions
 
-**Closed this round (allocator 6.2, `CHANGELOG.md` has the detail).** T12
-retired void; T13 absorbed into T1; T14 implemented, scoped to a single
-scheme; T15 registered, resolving its collision with the document's own T10.
-The P2a/P2b claim of allocator 5.3 is corrected: coincidence holds only
-within a single scheme, not pooled across two, which is what "re-measure P2a
-against P2b" turned out to mean, a prose correction rather than a magnitude
-for the manuscript, since a synthetic gap is not a citable clinical number
-either way. Decision 20 gained the general closed form
-Δτ\*_replan(w) = (n_fx / B) · τ_0 · a / (m − w) in allocator 6.5, with the
-single-scheme reference-study illustration corrected: B = 3 (ten fractions
-per block, Section 9) gives 30 course-minutes for the standard schedule's
-adaptation cost under per-replan accounting, not the 10 previously written
-here, and raises the illustrative threshold to 188 min. The cross-schedule
-comparison the phrase "reorders the hull" pointed to still needs B for the
-hypofractionated schedule, which decision 23 has not fixed, so decision 20
-itself stays open.
+**Closed this round, September 2026, by supervision.** Decisions 24, 16, 17 and
+18; 7b reframed and reassigned. A10 corrected: photon dose recomputation on the
+repeat images is **inherited** from the reference study, not an amendment to it,
+and the "fifth difference" of allocator Section 2 is withdrawn. The correction
+came from the candidate's check with an author of the reference study; the
+previous reading, that the reference study took planned photon dose as delivered,
+was wrong and had been carried since version 1. The rescue there covers the
+photon arm as well as the proton arms, so A10 is inherited in full and needs no
+qualifying clause. A28, the unpriced rescue, is also the reference study's own
+accounting rather than a convention adopted here. Continuity is stronger than the
+documents claimed, not weaker: the step-ratio derivation of allocator 6.5
+recovers the reference study's break-even condition analytically and requires the
+arms on both sides to be constructed alike, which they are.
 
-Still without data or supervisory input:
+Still without data or supervisory input, all of it blocked on the same thing
+in practice, the first real patient imaging, except where noted:
 
-1. Map the sign of the utility of the free hypofractionated photon arm over the plausible range of α/β and volume parameter, on synthetic DVHs. If it is non-positive for every patient, decision 18 is empty. Requires the endpoint models, so it follows decision 19.
-2. On the first exported case, measure dose grid dimensions and masked ROI volumes before fixing the storage strategy.
-3. Run decision 26 as a feasibility probe on one patient rather than as a question: script one adapted-arm replan per modality from a fixed objective template and record whether the result is acceptable without intervention. The answer sizes the whole cohort phase and is needed before the plan-generation effort is committed.
+1. **Evaluator: change the coverage screen from a filter to a substitution.**
+   The remaining piece of the version 7 design, deferred this round by
+   choice rather than found impossible. A non-adapted arm's dose
+   composition becomes a piecewise sequence of clinical-margin plans, with
+   breakpoints set by the screen and carried forward under A29, and the
+   evaluator emits real `block_plans` (Section 6) in place of the
+   generator's synthetic draw. `n_no_free_option` stays a regression check
+   expected to read zero either way. Blocked on the first exported case,
+   since the screen needs real repeat-CT geometry to fire on.
+2. Map the sign of the utility of a hypofractionated photon arm against a standard-schedule one, on synthetic DVHs, over the plausible range of α/β and volume parameter. This no longer decides whether decision 18 is empty; it decides how far the numeraire moves for the patients whose XT-NA is hypofractionated. Requires the endpoint models, so it follows decision 19.
+3. On the first exported case, measure dose grid dimensions and masked ROI volumes before fixing the storage strategy.
+4. Run decision 26 as a feasibility probe on one patient rather than as a question: script one adapted-arm replan per modality from a fixed objective template and record whether the result is acceptable without intervention. The answer sizes the whole cohort phase and is needed before the plan-generation effort is committed.
+5. Draft the metric request to the RTTs, with the target and OAR directions stated separately, to go out with the decision 3 and 12 questions.
 
-**Closed this round (allocator 6.3).** The pen\* closed form is written into
-6.5: the standard adapted arm is the highest-cost point of a patient's pooled
-proton frontier, so it lies on the hull exactly when it also carries the
-highest utility, giving pen\* = a · (a_mult − 1), independent of Δτ. Verified
-against `scripts/two_scheme_check.py`'s own `hull()` calls, both its printed
-table and a direct bisection against its `ladder()`/`survivors()` functions,
-matching to six decimal places at a_mult = 1.0, 1.3, 1.6, 2.0, 2.5. This
-refines 6.5, which states that competition between schemes is resolved by the
-allocator and not by any closed form: one point of that competition, the one
-Section 5.4's dominance-count question is silent on, does have one; it does
-not extend to the other three points of the pooled frontier. The verification
-caught `two_scheme_check.py`'s N_STD at 28, inconsistent with the n_fx = 30
-of Section 9 and `test_threshold.py` for the same schedule; corrected to 30
-in the same round. The correction changes the script's course-cost and
-configuration tables but not its pen\* table, checked at both values.
+**Earlier rounds, retained, and the two thresholds distinguished.** Section
+6.5's base closed form, Δτ\* = τ_0 · (a / m), recovers the reference study's
+own break-even condition analytically rather than reading it off a scenario
+ladder. At the reference-study magnitude for 2-year mortality at the 2 mm
+setting (m = 6.9 %, m + a = 10.7 %, so a = 3.8 pp, τ_0 = 34.2 min) it gives
+**18.8 min**, against the 19 min the paper itself reports as the point past
+which the gain against NA-Clinic stops being significant, checked directly
+against Borderías-Villarroel et al. rather than assumed. Dysphagia and
+pneumonitis are the same table's other two checks: 42.1 min against a
+published curve that never crosses within their 25.7 min sweep, and 20.9 min
+against a published crossing near 13.7 min, a genuine discrepancy the
+document reads as informative rather than as a failure of the closed form.
 
-**Decided, August 2026.** Hypofractionation is not modelled as requiring
-adaptation. Non-adapted hypofractionated arms are removed by the coverage screen
-on evidence, not by construction. The reason is the side effect: removing them by
-construction would also dissolve A27 and open decision 18, retiring two items
-nobody had decided to retire. The generator flag is retained as a near-free
-sensitivity.
+Decision 20 asks a different question and is not the same number. Charging
+adaptation once per block rather than once per fraction rescales the same
+formula by n_fx / B: at B = 3 for the standard schedule (ten fractions per
+block, n_fx = 30) the threshold moves from 18.8 to **188 min**, ten times
+larger, because the same physical Δτ then buys a cheaper-looking adaptation
+on the entry step's own terms. This is not a second measurement of the same
+quantity and not an error; it is what the formula gives under per-replan
+rather than per-fraction accounting. Decision 20 stays open because the
+cross-schedule comparison it actually turns on needs B for the
+hypofractionated schedule too, which decision 23 has not fixed.
 
-**Closed this round (allocator 6.4, evaluator 5.2, extractor 4.2).** Decisions
-21 and 22 resolved in the text of allocator 12, not only in this file; the
-denominator convention resolved in the same place. 12.1 renamed and
-corrected: treatment C is marked excluded with its reason rather than
-presented as a live option, and a new paragraph states that A and D are not
-mutually exclusive. Decision 18's own row in 12 updated to match. Appendix A
-deleted. Decisions 25 and 26, until now tracked only in this file, are
-registered in allocator 12; decision 25 also as E16 in evaluator 10 and in
-extractor 11 (Provenance), stating in all three that all dose for paper 1 is
-computed in RayStation and imported. The cross-modality reporting convention
-itself is not written anywhere, since it does not exist yet: decision 25
-remains open, blocked on the clinical partners, and both new passages say so.
-This closes the "still pending a version bump" list from 6.2; nothing remains
-on it.
+The pen\* closed form, pen\* = a · (a_mult − 1), independent of Δτ, is also in
+6.5 and verified numerically to six decimal places at five values of a_mult.
+All three closed forms are unaffected by version 7: rescue shifts a
+patient's utilities by a common constant, which leaves intra-patient
+orderings, the step ratio and pen\* untouched and moves only the level of
+ΔNTCP.
+
+**Decided, August 2026, now partly superseded.** Hypofractionation is not
+modelled as requiring adaptation, and that stands. The second half, that
+non-adapted hypofractionated arms are removed by the coverage screen on evidence
+rather than by construction, is void at version 7: nothing is removed. The
+empirical check it was meant to provide survives in better form as rescue
+frequency per schedule, which measures how often a five-fraction course delivered
+without systematic adaptation would in fact have needed a replan.
 
 ## 8. Calendar
 
