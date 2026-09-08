@@ -47,10 +47,15 @@ def test_arm_label_distinguishes_the_four_arms():
            {'XT-NA', 'XT-A', 'PT-NA', 'PT-A'}
 
 def test_arm_label_carries_the_scheme_when_it_is_not_standard():
-    c = two_scheme_cohort(4, x_gain = 0.02, dtau_xt = 16.0)
+    """PT-NA, PT-A and XT-A are generated under both schedules for every
+    patient, so their hyp labels always appear. XT-NA carries exactly one
+    schedule per patient (A32); force hypo_frac = 1.0 so 'XT-NA hyp' is
+    exercised deterministically rather than by chance of the seed, and drop
+    the plain 'XT-NA' label, which does not arise in that case."""
+    c = two_scheme_cohort(4, x_gain = 0.02, dtau_xt = 16.0, hypo_frac = 1.0)
     labels = {arm_label(s) for s in c.strategies}
-    assert {'XT-NA', 'XT-A', 'PT-NA', 'PT-A'} <= labels
-    assert {'XT-NA hyp', 'XT-A hyp', 'PT-NA hyp', 'PT-A hyp'} <= labels
+    assert {'PT-NA', 'PT-A', 'XT-A'} <= labels
+    assert {'XT-NA hyp', 'PT-NA hyp', 'PT-A hyp', 'XT-A hyp'} <= labels
 
 def test_dominance_counts_are_disjoint_and_bounded():
     """Pareto and LP removals partition what was discarded, and nothing is

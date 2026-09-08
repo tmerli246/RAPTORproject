@@ -61,10 +61,18 @@ def test_no_policy_harms_the_cohort(name, make, fac):
         assert alloc.mean_dntcp >= -1e-12, pol
 
 def test_p0_uses_no_adaptation_and_the_standard_schedule():
-    cohort = two_scheme_cohort(8)
+    """P0 is current practice: no patient is ever adapted, and any patient
+    referred to protons receives the standard-schedule PT-NA arm. A patient
+    left on their default, XT-NA, may carry the hypofractionated schedule if
+    clinical eligibility assigns it (A32); that is not a P0 decision and is
+    forced here with hypo_frac = 1.0 so the case is exercised rather than
+    left to the luck of a seed."""
+    cohort = two_scheme_cohort(8, hypo_frac = 1.0)
     alloc = POLICIES['P0'](cohort, Facility(480.0, days = 12))
     assert all(not s.adapted for s in alloc.choice.values())
-    assert all(s.scheme == 'std' for s in alloc.choice.values())
+    for s in alloc.choice.values():
+        if s.modality == 'pt':
+            assert s.scheme == 'std'
 
 def test_p1_adapts_every_proton_patient():
     cohort = arm_cohort(8)
@@ -73,11 +81,17 @@ def test_p1_adapts_every_proton_patient():
     assert pt and all(s.adapted for s in pt)
 
 def test_p1_keeps_the_standard_schedule():
-    """P1 is the reference-study world, which has one schedule. The
-    hypofractionated arms must not be reachable however large the budget."""
-    cohort = two_scheme_cohort(8)
-    alloc = POLICIES['P1'](cohort, Facility(1e6, days = 12))
-    assert all(s.scheme == 'std' for s in alloc.choice.values())
+    """P1 is the reference-study world, which has one PROTON schedule: the
+    hypofractionated proton arms must not be reachable however large the
+    budget. A non-referred patient's default is XT-NA, which may itself
+    carry the hypofractionated schedule (A32); that is independent of P1's
+    own restriction and is exercised here at ordinary, not saturating,
+    capacity so some patients are left unreferred."""
+    cohort = two_scheme_cohort(8, hypo_frac = 1.0)
+    alloc = POLICIES['P1'](cohort, Facility(240.0, days = 12))
+    for s in alloc.choice.values():
+        if s.modality == 'pt':
+            assert s.scheme == 'std'
 
 def test_p1_spends_no_photon_budget():
     """P1 is the reference-study world: the adapted photon arm does not exist
