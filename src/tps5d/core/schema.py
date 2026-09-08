@@ -11,12 +11,14 @@ which is what makes a patient's option set two chains meeting at XT-NA.
 Modality, adaptation and fractionation are chosen once, at prescription. All
 three are scalar fields of this record, so a course that changes any of them
 part-way is not representable rather than merely disallowed. A patient holds
-four strategies per fractionation scheme and eight over two schemes,
-independently of the number of blocks (allocator design, Section 5.1).
+**seven** strategies (allocator design 7.0, Section 5.1): XT-A, PT-NA and PT-A
+each carry both fractionation schemes, and XT-NA carries **one**, fixed per
+patient by clinical eligibility rather than chosen by the optimisation (A32).
+A27, under which XT-NA could be free under either schedule and a patient could
+hold two zero-cost options, is retired at version 7: there is exactly one.
 
-XT-NA is free on both budgets under either fractionation scheme, so a patient
-may hold two zero-cost options rather than one (A27). It carries two roles that
-are logically distinct and are kept apart here:
+XT-NA is free on both budgets under whichever schedule it carries. It carries
+two roles that are logically distinct and are kept apart here:
 
     reference arm   the numeraire of delta NTCP. Fixed across every patient
                     and every policy, so that the zero point never moves
@@ -25,15 +27,57 @@ are logically distinct and are kept apart here:
                     the allocation is to be guaranteed no worse than the
                     reference
 
-`baseline` marks the first role, `admissible` the second. They normally
-coincide. They separate when the coverage screen rejects a patient's
-non-adapted photon plan, which the evaluator may do on either modality
-(allocator design, Section 8.2): the arm remains the numeraire but stops
-being assignable, and an optimal allocation may then have to assign a
-strategy of negative delta NTCP.
+`baseline` marks the first role, `admissible` the second. Versions up to 6
+separated them when the coverage screen rejected a patient's non-adapted
+photon plan. At version 7 the screen rescues a failing plan rather than
+removing it (allocator design 7.0, Sections 8.2 and 8.6), so `admissible`
+is expected to read True for XT-NA on every patient once the evaluator is
+updated to the new mechanism; that update is not yet made; `admissible`
+itself is untouched here and still governs which strategies a solver may
+assign.
+
+Coverage rescue is tracked separately, on `block_plans` below, and is
+metadata only in this round: it does not feed NTCP, occupancy or
+admissibility, since dose composition and the screen itself remain frozen
+pending real imaging data (STATE.md Section 6).
 """
 
 from dataclasses import dataclass, field
+
+@dataclass
+class BlockPlan:
+    """The plan delivered at one block of a non-adapted arm's course.
+
+    block_index   0-based position of the block in the course
+    role          'planned', the plan already in force continues to be
+                  delivered here (or this is the first block, on the
+                  planning anatomy); or 'rescue', a new replan was generated
+                  at this block because the plan otherwise due here fell
+                  below the acceptance criterion (allocator design 7.0,
+                  Section 8.2; A24, A29, A30)
+    source_image  identifier of the image the currently delivered plan was
+                  generated on: 'pCT' until the first rescue, the repeat
+                  image of the triggering block afterwards. Unchanged across
+                  consecutive blocks delivering the same plan, which is how
+                  a rescue's persistence (A29) is read off the sequence
+                  without a separate flag for it
+
+    A rescue changes neither margin nor setup error (A30): nothing carried
+    elsewhere on the Strategy differs between a planned and a rescued block,
+    only which image the delivered plan traces back to.
+
+    An adapted arm's block is optimised on the anatomy it is then evaluated
+    on (A1, A4), so its role is always 'planned'; Strategy.__post_init__
+    enforces this rather than leaving it to be assumed by callers.
+    """
+    block_index: int
+    role: str
+    source_image: str
+
+    def __post_init__(self):
+        if self.role not in ('planned', 'rescue'):
+            raise ValueError(f"block {self.block_index}: role must be "
+                             f"'planned' or 'rescue', got '{self.role}'")
 
 @dataclass
 class Strategy:
@@ -61,6 +105,15 @@ class Strategy:
               of negative utility stay in the option set and are declined by
               dominance (allocator design, Section 8.3). The reference arm
               can be inadmissible: it keeps its role as numeraire either way
+    block_plans  sequence of BlockPlan, one per block, recording where each
+              block's dose traces back to and whether it was a scheduled
+              plan or an unscheduled rescue. Optional: an empty list, the
+              default, means "block structure not modelled" for this
+              strategy, not "zero rescues", and is excluded rather than
+              counted as zero by report.rescue_counts. Populated by the
+              synthetic generator for every strategy at version 7; not yet
+              populated by the evaluator, which is frozen pending real
+              imaging data
     """
 
     pid: str
@@ -74,6 +127,7 @@ class Strategy:
     adapted: bool = False
     baseline: bool = False
     admissible: bool = True
+    block_plans: list = field(default_factory = list)
 
     def __post_init__(self):
         if self.modality not in ('pt', 'xt'):
@@ -88,6 +142,29 @@ class Strategy:
             raise ValueError(f"{self.pid}/{self.sid}: n_fx must be positive")
         if not self.ntcp:
             raise ValueError(f"{self.pid}/{self.sid}: no endpoints")
+        if self.block_plans:
+            first = self.block_plans[0]
+            if first.block_index != 0 or first.role != 'planned':
+                raise ValueError(f"{self.pid}/{self.sid}: block 0 must be "
+                                 f"'planned', on the planning anatomy (A23)")
+            for i, bp in enumerate(self.block_plans):
+                if bp.block_index != i:
+                    raise ValueError(f"{self.pid}/{self.sid}: block_plans "
+                                     f"must be contiguous and 0-based")
+            if self.adapted and any(bp.role == 'rescue' for bp in self.block_plans):
+                raise ValueError(f"{self.pid}/{self.sid}: an adapted arm's "
+                                 f"block plan is optimised on the anatomy it "
+                                 f"is evaluated on and cannot be rescued "
+                                 f"(A1, A4)")
+
+    @property
+    def n_rescues(self):
+        """Number of blocks at which a new rescue plan was generated.
+
+        Zero for a strategy carrying no block_plans, which is the
+        "not modelled" state rather than a claim that no rescue occurred.
+        """
+        return sum(1 for bp in self.block_plans if bp.role == 'rescue')
 
     @property
     def ntcp_tot(self):
@@ -223,11 +300,16 @@ class Cohort:
         the linear and the integer problem. No sign constraint is imposed
         anywhere, and none is needed.
 
-        Under two fractionation schemes a patient normally has two free
-        options, XT-NA under each schedule, so the guarantee survives the loss
-        of either one alone (A21 as amended, A27). The count of patients for
-        whom it does not is what makes the no-harm property empirical rather
-        than structural, and it is reported as n_no_free_option.
+        Under version 7 a patient normally has exactly one free option,
+        XT-NA at whichever schedule clinical eligibility assigns it (A32).
+        A27, under which a patient could hold two such options, one per
+        schedule, is retired: the guarantee no longer has a second option to
+        fall back on if the one XT-NA is lost, which is why the coverage
+        screen rescuing rather than removing it (allocator design 7.0,
+        Section 8.2) is what makes this list provably empty rather than
+        merely usually empty. The count of patients for whom it is not is
+        what would make the no-harm property empirical rather than
+        structural, and it is reported as n_no_free_option.
 
         Where the list is not empty, an optimal allocation may assign a
         strategy of negative delta NTCP to those patients. That is the
