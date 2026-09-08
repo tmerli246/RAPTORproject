@@ -13,6 +13,8 @@ The reported quantities, and where each is committed to:
     Pareto and LP dominance counts
     cohort composition by arm
     per-endpoint delta NTCP
+    rescue frequency by arm and by block (version 7, structural metadata
+    only: see rescue_counts and Strategy.block_plans)
 
 The sweep functions produce every candidate output of road Section 5.12
 without deciding internally which one is the result: the hierarchy is a
@@ -112,6 +114,45 @@ def admissibility_counts(cohort):
     out['n_no_free_option'] = len(cohort.no_free_option())
     out['n_no_option'] = len(cohort.no_option())
     return out
+
+def rescue_counts(cohort):
+    """Rescue events recorded in each strategy's block_plans.
+
+    A rescue is a new replan generated because the plan otherwise due at
+    that block failed the coverage screen (allocator design 7.0, Section
+    8.2). This is the version 7 replacement for the removal count of
+    versions 1 to 6: nothing is removed any more, and rescue frequency is
+    what licenses or withdraws the plausibility of a non-adapted arm
+    (STATE.md Section 6).
+
+    Only strategies carrying a non-empty block_plans contribute. An empty
+    list means "block structure not modelled" for that strategy, not "zero
+    rescues" (Strategy docstring), so it is excluded from n_modelled rather
+    than counted as a zero. This matters while the evaluator is frozen and
+    only the synthetic generator populates block_plans: a cohort built by
+    hand, as several test fixtures are, reports n_modelled = 0 rather than a
+    false all-clear.
+
+    Returns a dict:
+        by_arm     {arm label: rescue count}, arm_label conventions
+        by_block   {block index: rescue count}, summed across arms
+        n_events   total rescue count, sum of by_arm (== sum of by_block)
+        n_modelled number of strategies carrying a non-empty block_plans,
+                   the denominator these counts are computed over
+    """
+    by_arm, by_block, n_modelled = {}, {}, 0
+    for s in cohort.strategies:
+        if not s.block_plans:
+            continue
+        n_modelled += 1
+        n = s.n_rescues
+        if n:
+            by_arm[arm_label(s)] = by_arm.get(arm_label(s), 0) + n
+        for bp in s.block_plans:
+            if bp.role == 'rescue':
+                by_block[bp.block_index] = by_block.get(bp.block_index, 0) + 1
+    return {'by_arm': by_arm, 'by_block': by_block,
+           'n_events': sum(by_arm.values()), 'n_modelled': n_modelled}
 
 def dominance_counts(cohort):
     """Options removed by each reduction, per patient and in total.
