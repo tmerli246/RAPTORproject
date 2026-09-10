@@ -16,6 +16,116 @@ above it, the amendment governs, and the later amendment governs the earlier.
 end of each specification document. Existing numbers were preserved rather than
 compacted, so cross-document pointers of the form "allocator 10.5" remain valid.
 
+**One documented exception.** `extractor_design.md` was renumbered at version 5.0
+to follow pipeline order, so pointers of the form "extractor N" made against
+versions 1 to 4.3 do not carry over. The mapping is in that round's entry below.
+No other document has been renumbered and the rule stands for the other three.
+
+---
+
+# Extractor 5.0, one document
+
+Extractor 4.3 to **5.0**. Road, allocator and evaluator unchanged at 7.0, 7.0 and
+6.0. No supervisory input and no code change. The round settles the implementation
+questions that stood between the extractor specification and writing its code, and
+it is major on its own document for three reasons: an assumptions register that did
+not exist, a revision of the masking rule that had stood since version 1, and a
+renumbering. Nothing it decides touches another document's register, so the lockstep
+convention does not fire.
+
+**Why now.** The extractor was thin relative to the allocator and had never been
+implemented, and the reason recorded for not implementing it was the first exported
+case. On inspection that reason covers less than it appeared to. Two things are
+genuinely blocked on real data: the storage sizing, which is a measurement, and the
+RayStation export conventions, which cannot be known without an export. The rest,
+the registration wrapper, the crop and mask arithmetic, the standard target metrics
+and the provenance mechanism, is independent of both the site and the first case.
+Site dependence inside this module is narrow: it governs which of the metrics
+already computed enter the acceptance criterion, decision 7b, not whether they are
+computed.
+
+**Renumbering.** Sections now follow pipeline order rather than accretion order, and
+the vacant 12 to 14 left by moving the history to this file are gone.
+
+| Old | New | Section |
+| --- | --- | --- |
+| 1, 2 | 1, 2 | Purpose and scope; the central interface decision |
+| 12 | **3** | Implementation strategy |
+| 13 | **4** | Plan identity and the export manifest |
+| 3 | 5 | Dose storage |
+| 4 | 6 | Conversion and caching |
+| 5 | 7 | Target metrics |
+| 6 | 8 | Delivery time |
+| 7 | 9 | ROI naming |
+| 8 | 10 | Relation to the NTCP model registry |
+| 9 | 11 | Synthetic cohorts |
+| 10 | 12 | Schema |
+| 11 | **13** | Provenance and uncertainty |
+| 14, 15 | 14, 15 | Assumptions register; open items |
+
+Plan identity precedes storage because what a plan *is* must be settled before the
+form it takes on disk. Two external pointers updated, both in `STATE.md`, at
+decision 25 and at the dose-provenance paragraph of Section 6.
+`evaluator_design.md` names the extractor in prose only and needed no change.
+
+**Assumptions register, new, prefix X.** Nine rows. X1 the store holds native
+records rather than OpenTPS objects; X2 the deformation field has a computing and an
+importing backend behind one interface; X3 fixed = pCT for every registration; X4 the
+crop is wider than the active model union; X5 the working grid is an explicit
+parameter and the CT-versus-dose-grid choice is deferred; X6 worst-case is stored as
+DVHs and not as grids; X7 scenario doses are exportable, **unverified**; X8 plan
+identity comes from a manifest; X9 the RayStation export conventions are as assumed,
+**unverified**. X7 and X9 close on the first real export and on nothing else.
+
+| Change | Where |
+| --- | --- |
+| Implementation strategy added: what is taken from OpenTPS and what is built here, checked against the published API; the adapter boundary; what is and is not testable before real data | extractor 3 |
+| Plan identity added. The manifest is the authority for arm, block, role and scheme, none of which are DICOM concepts; the DICOM relations verify the one thing they can, that a dose assigned to block *j* is tied to the image of block *j*; disagreement raises | extractor 4 |
+| Masking rule revised. Crop to the bounding box of all contoured structures plus target, wider than the union the active models require, with per-ROI masks kept separately on the same crop. The old rule would fix in the data the endpoint choice that decision 10 leaves open, which is the spatial analogue of the prohibition on storing EQD2 | extractor 5 |
+| Working grid made an explicit parameter. Resampling dose at ingest and generating masks on the dose grid are both non-neutral and in opposite directions; the ratio that decides is not known before the first export | extractor 5 |
+| Record form fixed, container deferred. `store_plan` and `load_plan` make the container a substitution. A serialised OpenTPS structure is excluded by X1; MHD fits poorly, having no native notion of an accompanying mask | extractor 5 |
+| Deformation-field provenance made a configuration choice through `get_dvf(moving, fixed, settings)`, reusing the cache key the document already specified. Morphons backend now, importing backend a stub | extractor 6.1 |
+| Registration direction fixed and argued: warping onto the pCT is a pull-back, so the required field maps pCT to rCT_j, and inverting a diffeomorphic field is neither exact nor cheap | extractor 6.2 |
+| Worst-case storage settled. It is never accumulated and never deformed, so it needs no dose grids; per-scenario DVHs per ROI are stored instead, because decision 7b may still change which metrics instantiate the criterion and a DVH survives that where a scalar does not. Same argument as evaluator 7.2, one level down. Physical scenarios preferred to voxel-wise aggregates, since the aggregate has no physical referent and cannot be inverted to the scenarios | extractor 7.1 |
+| Cohort validation tied to the ROI mapping and to the wide crop, so that an endpoint added when decision 19 closes fails at assembly and is fixed with a mapping line | extractor 10 |
+| Provenance given a form and a granularity. A separate table of declarative records rather than a scattered field, since the stated requirement is enumerability; tags on primitives only, with derived quantities inheriting, which keeps the table at tens of rows per patient | extractor 13.1, 13.2 |
+| Schema updated: `role`, `source_image` and `hypo_eligible` added; `robust_eval` holds DVHs and scalars rather than grids | extractor 12 |
+| `saveSerializedObjects`'s own `dictionarized` flag recorded as OpenTPS's documented admission that persisting its instances does not survive class changes, which is the decisive argument for X1 given MS13 and D4.1 | extractor 3.2 |
+| `processing.planEvaluation.robustnessEvaluation` deliberately not used: its scenario container carries setup and range error fields describing assumptions this study does not make, and its metrics omit V95% | extractor 3.1 |
+
+**Open items.** One closes and is replaced by a narrower one. Whether the robustness
+export gives per-scenario dose or only DVH bands was recorded as a precondition and
+is not one, since 7.1 removes the need for grids either way; what replaces it is X7,
+whether the scripting export exposes evaluation doses at all. Still open and
+unchanged: the storage sizing, now consolidated into one measurement session on the
+first case covering four quantities; the machine constants for the delivery-time
+model; the Δτ_XT range; and the contents of the TG-263 mapping file, which needs a
+real RTSTRUCT or a partner template. The mapping mechanism is complete without it.
+
+**What did not change.** The extraction unit is still the plan. The extractor still
+emits dose-derived quantities and evaluates no NTCP, still stores physical dose on
+native geometry, still stores block-level rather than strategy-level distributions,
+and still converts nothing to EQD2. The division of responsibility with the evaluator
+is untouched, and the boundary that the extractor neither accumulates nor converts is
+restated rather than moved.
+
+## Code, required not done
+
+`extractor/` exists in `src/tps5d/` carrying only `__init__.py`. Extractor 5.0 is the
+specification the module is written against. `design-v6.3` remains the tagged
+reference and this round adds no code, so no tag is cut.
+
+| Required change | Where |
+| --- | --- |
+| Adapter module confining every call into `opentps`, so the dependency surface is enumerable | `extractor/adapters.py` |
+| `get_dvf` with the Morphons backend implemented and the importing backend stubbed, cached by (moving, fixed, settings hash) | `extractor/` |
+| Registration test against a ground truth built with `syntheticDeformation`, which checks the recovery and the direction convention of X3 together | `tests/` |
+| Crop and mask arithmetic, `store_plan` and `load_plan` with the container left substitutable | `extractor/` |
+| TG-263 resolution, with an unmapped structure raising, and the mapping file versioned with its hash recorded | `extractor/` |
+| Manifest reader and the DICOM consistency check, raising on disagreement | `extractor/` |
+| Provenance table over primitives, with `kind` and `source` as specified | `extractor/` |
+| No change | `solve.py`, `dominance.py`, `evaluator/` |
+
 ---
 
 # Version 7, all four documents

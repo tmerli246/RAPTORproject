@@ -1,16 +1,26 @@
 # Project state
 
-**Last updated:** 2026-09-08, at tag `design-v6.3`, after the supervisory reply of
-early September 2026 and the code round that followed it, same day. The reply
-changes the coverage screen from a removal mechanism to a rescue mechanism and
-fixes the fractionation schedule of XT-NA exogenously. Both amend registers in
-two documents at once, which is the criterion version 6 used, so the document
-round was major: `allocator_design.md` to **7.0**, `evaluator_design.md` to
-**6.0**, `ROAD_TO_PAPER_1.md` to **7.0**, `extractor_design.md` to **4.3**.
-These four, `CHANGELOG.md`, and this file are committed together in one
-commit, separate from and after the four code commits, since the documents
-were finalised before the code implementation began but had not been
-committed until now. Detail for every round in `CHANGELOG.md`.
+**Last updated:** 2026-09-10, at tag `design-v6.3`, after a single-document
+round on the extractor. No supervisory input and no code change: the round
+settles the implementation questions that stood between the extractor
+specification and writing its code, and it moves one document only,
+`extractor_design.md` to **5.0**. The other three are unchanged at road 7.0,
+allocator 7.0, evaluator 6.0. This file and `CHANGELOG.md` are committed with
+it. Detail in `CHANGELOG.md`.
+
+The round is major on its own document for three reasons: it adds an
+assumptions register that did not exist, it revises the masking rule that had
+stood since version 1, and it renumbers the sections. Nothing it decides
+touches another document's register, which is why the lockstep convention does
+not fire and the other three do not move.
+
+**Section numbering changed in `extractor_design.md`.** Sections now follow
+pipeline order. Provenance moves from 11 to **13**; implementation strategy and
+plan identity occupy the new 3 and 4; the vacant 12 to 14 of earlier versions
+are gone. The two pointers in this file are updated. `evaluator_design.md`
+names the extractor only in prose and needed no change. The full mapping is in
+`CHANGELOG.md`, which also carries a note that its own "existing numbers were
+preserved" rule now has one documented exception.
 
 **Code tags track behaviour, not the document version number, and the two are
 not the same count.** A code round is tagged `design-vX.Y` for the document
@@ -48,12 +58,18 @@ All six live in `docs/` at the repository root, alongside `README.md` and
 | `ROAD_TO_PAPER_1.md` | 7.0 | Scientific question, hypothesis, arm set, uncertainty budget, plan budget, endpoint policy, what the paper claims. Open problems register (4.8). Appendix F, single copy |
 | `allocator_design.md` | 7.0 | Optimization problem, algorithm, shadow prices, step-ratio threshold, policy comparison. Assumptions register (11, amended at 11.1 and 11.2) and open decisions (12) |
 | `evaluator_design.md` | 6.0 | Dose composition, accumulation ordering, EQD2 conversion, NTCP evaluation, admissibility screens, strategy construction. Assumptions register (10, amended at 10.1 and 10.2) |
-| `extractor_design.md` | 4.3 | Ingest, registration, storage, target metrics, plan complexity, ROI naming, provenance |
+| `extractor_design.md` | 5.0 | Ingest, plan identity and the export manifest, registration, storage, target metrics, plan complexity, ROI naming, provenance (13). Assumptions register (14), prefix X |
 | `CHANGELOG.md` | - | Version history for all four. Kept in the repository, not in the project knowledge |
 
 The evaluator is one version behind the allocator by convention on the major
-number only. This round moves both majors together, which is what the convention
-is for: one supervisory decision amends both registers.
+number only. Version 7 moved both majors together, which is what the convention
+is for: one supervisory decision amends both registers. The extractor is not in
+that lockstep and never was; it moves when its own content moves.
+
+**Assumption prefixes.** The allocator owns **A**, the evaluator **E**, and the
+extractor **X**, added at extractor 5.0. Three registers, no shared numbering.
+An assumption that mirrors one in another document names it rather than
+restating it, so the same fact is not maintained in two places.
 
 ## 3. Design, in one paragraph
 
@@ -106,7 +122,7 @@ M13.
 | 12 / A15 | Plausible range for Δτ_XT, and whether photon plan verification is measurement-based or computational within a session |
 | 13 | Reference value C_XT^ref |
 | 7b | **Which metrics instantiate the coverage screen.** Two directions, not equivalent, and both to be requested from the RTTs. *Target metrics*, V95% and D5 on the target, extend the screen along the axis it already measures and change nothing structural. *OAR metrics*, Dmean and Dmax on the organs driving the endpoints, would let the screen fire on normal-tissue grounds, so rescue would trigger for OAR reasons and the upper tail of the non-adapted arms' NTCP would be truncated; the study would then report adaptation benefit conditional on standard-of-care rescue, which is defensible but is a different result. Collect both regardless, since the OAR metrics are useful descriptively; deciding which enter the screen is separate. Gated on 19, since the protocol is site-specific |
-| 25 | Which RayStation dose engine generates the proton plans, analytical pencil beam or Monte Carlo, and the reporting conventions for both modalities: RBE weighting, dose-to-water or dose-to-medium, grid resolution and origin. The engine choice bears on the premise of the study, since analytical dose is least reliable in the heterogeneous abdomen and the error is systematic rather than random, so it does not average out over the cohort and it falls on the arm whose degradation under anatomical change the paper measures. Registered in allocator 12, evaluator 10 (E16) and extractor 11 |
+| 25 | Which RayStation dose engine generates the proton plans, analytical pencil beam or Monte Carlo, and the reporting conventions for both modalities: RBE weighting, dose-to-water or dose-to-medium, grid resolution and origin. The engine choice bears on the premise of the study, since analytical dose is least reliable in the heterogeneous abdomen and the error is systematic rather than random, so it does not average out over the cohort and it falls on the arm whose degradation under anatomical change the paper measures. Registered in allocator 12, evaluator 10 (E16) and extractor 13 (X9) |
 | - | Clinical eligibility for hypofractionation, per patient. Required data under A32, since it fixes the schedule of the XT-NA arm. Depends on the protocol for the indication and therefore on 19 |
 | - | Whether short-course patients in the cohort have any repeated imaging. Determines whether the hypofractionated schedule has blocks at all, and therefore whether decision 23 arises |
 
@@ -155,7 +171,7 @@ output rather than a precondition for writing.
 ## 6. Code
 
 Package `tps5d` in the RAPTORproject repository, `src/tps5d/` with `core`,
-`allocator`, `evaluator`, `generator`. Conda environment `OpenTPS`, Windows,
+`allocator`, `evaluator`, `generator`, `extractor`. Conda environment `OpenTPS`, Windows,
 PowerShell. Implemented: `schema.py`, `solve.py`, `dominance.py`, `policies.py`,
 `report.py`, `figures.py`, `synth.py`, `evaluator/ntcp.py`,
 `evaluator/registry.py`. Exact solver `scipy.optimize.milp` (HiGHS), `solve_dp`
@@ -212,6 +228,14 @@ What the evaluator itself still needs, once real imaging is available, is
 recorded as a next action in Section 7 rather than here, since it is blocked
 on the same data dependency as the science items there.
 
+**`extractor/` exists and is empty**, carrying only `__init__.py`. It is the
+next module to be written, and extractor 5.0 is the specification it is written
+against. Two things it needs from OpenTPS are confirmed present in the
+installed environment by Tommaso: the registration package, and
+`processing.imageProcessing.syntheticDeformation`, on which the registration
+test rests. The OpenTPS refactor is in progress but not yet pushed, so the API
+in extractor 3.1 is the API in hand; it is re-checked if that changes.
+
 **Test count.** 260 (236 plus the 24 new), all passing: confirmed in the
 working sandbox on SciPy 1.17.1, by Tommaso in the project's own conda
 environment, and independently at each of the four commits below in
@@ -243,7 +267,7 @@ exposed to this; the effect was confined to the diagnostic count.
 photon and proton alike. OpenTPS performs accumulation, evaluation and allocation
 and calculates no dose. The photon CCC implementation in OpenTPS is therefore not
 on the critical path of this study, and the contribution to D4.1 is entirely
-evaluation-side. Recorded as E16 in the evaluator and in extractor Section 11.
+evaluation-side. Recorded as E16 in the evaluator and in extractor Section 13.
 
 ## 7. Next actions
 
@@ -261,6 +285,37 @@ documents claimed, not weaker: the step-ratio derivation of allocator 6.5
 recovers the reference study's break-even condition analytically and requires the
 arms on both sides to be constructed alike, which they are.
 
+**Closed this round, September 2026, by the doctoral candidate.** The
+implementation questions that stood between extractor 4.3 and its code, all
+settled in extractor 5.0 and registered as X1 to X9. The store holds native
+`tps5d` records rather than OpenTPS objects (X1); the deformation field comes
+from a single interface with a computing and an importing backend (X2); every
+registration uses fixed = pCT (X3); the crop is wider than the active model
+union, so a later endpoint addition costs a mapping line rather than a
+re-extraction (X4); the working grid is an explicit parameter and the CT-versus-
+dose-grid choice is deferred to measurement (X5); worst-case is stored as
+per-scenario DVHs and not as dose grids (X6); plan identity comes from an export
+manifest with the DICOM relations as a consistency check (X8).
+
+One item leaves the blocked list. Whether the robustness export provides
+per-scenario dose or only DVH bands was recorded as a precondition; it is not
+one. Worst-case is never accumulated and never deformed, so it needs no dose
+grids in either case, and the answer changes what the metrics mean rather than
+whether they can be produced. What replaces it is narrower and is X7: whether
+`ScriptableDicomExport` exposes evaluation and scenario doses at all, and
+whether that depends on the licence tier. Not verified: the DICOM conformance
+statements consulted name the beam set dose and do not name evaluation doses.
+
+**Extractor, unblocked, next.** Writing begins from extractor 5.0. Testable now
+without patient data: interface contracts and shapes, crop and mask arithmetic
+on fabricated arrays, the content-hash cache, the TG-263 resolution rule
+including that an unmapped structure raises, the provenance table, the manifest
+consistency check, and the registration path against a constructed ground truth
+built with `syntheticDeformation`. Not testable now, and stated as a limit of
+validation rather than of implementation: whether the parser survives a real
+RayStation export (X9), DIR performance on real abdominal anatomy, and the true
+grid and mask dimensions.
+
 Still without data or supervisory input, all of it blocked on the same thing
 in practice, the first real patient imaging, except where noted:
 
@@ -274,7 +329,7 @@ in practice, the first real patient imaging, except where noted:
    expected to read zero either way. Blocked on the first exported case,
    since the screen needs real repeat-CT geometry to fire on.
 2. Map the sign of the utility of a hypofractionated photon arm against a standard-schedule one, on synthetic DVHs, over the plausible range of α/β and volume parameter. This no longer decides whether decision 18 is empty; it decides how far the numeraire moves for the patients whose XT-NA is hypofractionated. Requires the endpoint models, so it follows decision 19.
-3. On the first exported case, measure dose grid dimensions and masked ROI volumes before fixing the storage strategy.
+3. On the first exported case, one measurement session covering four quantities at once, before the storage container is fixed: dose grid dimensions, masked ROI volumes, the ratio of the crop volume to the summed ROI volume (X4), and the ratio of the dose-grid to CT-grid spacing (X5). The last two decide questions that are deferred rather than open.
 4. Run decision 26 as a feasibility probe on one patient rather than as a question: script one adapted-arm replan per modality from a fixed objective template and record whether the result is acceptable without intervention. The answer sizes the whole cohort phase and is needed before the plan-generation effort is committed.
 5. Draft the metric request to the RTTs, with the target and OAR directions stated separately, to go out with the decision 3 and 12 questions.
 
