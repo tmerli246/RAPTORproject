@@ -23,6 +23,125 @@ No other document has been renumbered and the rule stands for the other three.
 
 ---
 
+# Extractor 5.1 and evaluator 6.1, API verification and benchmark
+
+Extractor 5.0 to **5.1**, evaluator 6.0 to **6.1**. Road and allocator unchanged.
+No supervisory input and no code change. The round checks the OpenTPS mapping of
+extractor 3.1 against the installed environment instead of against published
+documentation, and carries the corrections that follow.
+
+**Result.** OpenTPS 3.0.0, all 34 entries present, no entry removed or renamed.
+Presence was never the question. Reading the signatures, then the Morphons and DVH
+sources, then benchmarking Morphons changed the design in four places and clarified
+it in two more.
+
+**Finding 1, the deformation field has its own grid, with two floors.** Morphons
+runs a fixed ladder, `baseResolution` times `[11.31, 8, 5.66, 4, 2.83, 2, 1.41, 1]`,
+stopping before a scale finer than the fixed image. The returned field carries the
+finest scale still at or above the working-grid spacing, so `baseResolution` is one
+floor and the working grid the other. Measured on a 300 x 300 x 200 mm phantom at
+the 2.5 mm default: a 3.0 mm grid returns 3.54 mm, the ladder stopping a rung early;
+2.0 mm and 1.5 mm grids both return 2.50 mm. The field is never finer than the
+working grid and can be coarser by up to the square root of two.
+
+**Below the working-grid spacing is excluded on measurement.** At a 2.0 mm grid,
+`baseResolution` of 1.5 mm costs 38.3 s against 28.9 s and returns a coarser field,
+2.13 against 2.00 mm, because every rung above the floor runs finer while the last is
+cut off by the working grid anyway. Cost goes as the cube of the inverse of
+`baseResolution`: measured factors 1.78 and 1.86 against 1.73 and 1.95 expected.
+
+**Equal to the working-grid spacing is a recommendation, not a result.** It removes a
+free parameter and yields the finest field the ladder can deliver, but whether that
+is worth its cost against a coarser setting is not answered by these measurements:
+a coarser `baseResolution` buys time and spends field resolution, and what the field
+resolution costs in gEUD is unknown without real anatomy. The comparison joins the
+first-case measurement session.
+
+**Finding 2, `nbProcesses = 1` settled on evidence.** The parallel path was slower at
+every grid: 10.7 s against 8.3 at 3.0 mm, 16.2 against 14.0 at 2.0 mm, 15.8 against
+14.5 at 1.5 mm. Windows spawns rather than forks, so each worker re-imports OpenTPS
+and the overhead exceeds the gain at these sizes. This is not a trade against
+reproducibility: the `morphonsComplexConvS/D` branch is never taken, so one of the
+three pairs of code paths is removed rather than having its value fixed in a hash.
+
+**Finding 3, registration cost does not constrain the working grid.** 14.0 s at
+2.0 mm and 14.5 s at 1.5 mm, for 2.2 and 5.3 Mvoxel: 2.4 times the voxels in the same
+time, since the work lives on the ladder's grids rather than the image's. Time
+therefore leaves the list of criteria for X5, which keeps storage and interpolation
+accuracy. With registrations equal to patients times blocks, arms sharing the images,
+twenty patients at three blocks is sixty registrations and well under an hour,
+computed once and cached; that cohort size and block count are an illustration, not a
+design figure, and the order of magnitude is what the estimate carries. The
+concern recorded in the 5.0 round that CPU-only registration might constrain the
+cohort phase was unfounded, and is now closed with numbers rather than an estimate.
+
+**Finding 4, `deformImage` resamples the field silently.** When grids do not match it
+resamples on the caller's behalf, choosing interpolation and fill value, announcing
+it at INFO. Every benchmarked registration logged it. Added as the fourth instance in
+extractor 3.4.
+
+**Finding 2, the DVH dose axis truncates at 100 Gy absolute.** `computeDVH(maxDVH=100.0)`
+is an absolute dose, not a multiple of the prescription. Verified: a uniform 150 Gy
+field on a 60 Gy prescription returns Dmax 150 and D2 99.99, since Dmax reads the
+dose array while D2 reads the histogram. Harmless for physical dose; not harmless
+for the DVH the evaluator caches, which is taken on accumulated EQD2. EQD2 passes
+100 Gy at prescription level in hypofractionated schedules at the low alpha over
+beta of late-responding organs, 5 × 8 Gy at 2 giving exactly 100 Gy and 5 × 10 Gy
+at 3 giving 130, before any hot spot, while a target at 10 stays below. Truncation
+would fall asymmetrically on the hypofractionated arms and the OAR endpoints, would
+bias a small-volume-parameter gEUD downward by removing the tail the power mean
+weights, and would be silent. This is why the evaluator moves: the constraint bites
+where the DVH meets EQD2. Found before the composition machinery of evaluator 4 and
+5 exists to be damaged by it.
+
+**Clarification 1, the registration direction stated operationally.** Versions 4.3
+to 5.0 argued fixed = pCT through the direction the field maps, which is ambiguous
+across conventions: OpenTPS labels the field "deformation from moving to fixed"
+while the field is defined on the fixed grid and points into the moving space, and
+both describe the same object. The ambiguity invited a later reader to correct the
+document to the opposite. Restated on the operation instead: `deformImage(moving)`
+returns an image on the fixed grid, as the Morphons source shows by naming its
+result `<moving>_registered_to_<fixed>`, so the pCT is the fixed image. X3 confirmed
+rather than amended.
+
+**Clarification 2, the Morphons settings are not speed controls.** `tryGPU` selects
+between the cupy implementation and the CPU loop; `nbProcesses > 1` selects
+`morphonsComplexConvS/D` over `applyMorphonsKernels`; `baseResolution` sets the
+field scale and the loop's stopping point. Three switches, three pairs of code
+paths, no guarantee of numerical agreement within any pair. All three enter the
+settings hash, read from the settings passed in rather than from the registration
+object, which rewrites `nbProcesses` in place when negative and would otherwise make
+the hash machine-dependent. The GPU path sits under a bare `except` logging at INFO,
+so any failure and not only a missing cupy degrades silently to CPU. Carried in X2.
+
+| Change | Where |
+| --- | --- |
+| 3.1 rewritten around the verified environment rather than published documentation. DIR and DVH rows corrected. Two qualifications recorded: the installation is a source checkout, so the commit hash and not the version string identifies the code; the refactor is not yet pushed | extractor 3.1 |
+| 3.4 added, "nothing is called with its defaults", with its three instances: `getBinaryMask` geometry, `computeDVH(maxDVH)`, and the Morphons switches. Stated as a rule because all three fail silently rather than loudly, and because a default that is taken is a parameter whose value is recorded nowhere | extractor 3.4 |
+| `get_dvf` made keyword-only. `RegistrationMorphons(fixed, moving, ...)` takes the images in the opposite order, positionally and of the same type; a transposition would return a plausible field in the wrong direction rather than raise | extractor 6.1 |
+| Field resolution, settings hash contents and the CPU/GPU path recorded | extractor 6.1, X2, X5 |
+| 6.2 restated operationally | extractor 6.2, X3 |
+| Three primitives added to provenance: the prescription, the DIR settings, and the OpenTPS commit hash. The prescription is not in the dose file, `computeVx` divides by it, and V95% depends on it linearly | extractor 13.2 |
+| `maxDVH` constraint recorded where the DVH meets EQD2, with the arithmetic that shows where it bites | evaluator 7.2, E10 |
+| Prescription units fixed. `computeVx` takes a percentage of the prescription, so a course prescription against the stored per-fraction dose would return V95% of zero for the whole cohort without raising. Convention adopted: course dose against course prescription, which matches how coverage is judged at planning. Stated and enforced in the adapter, since a test in the same units as the code cannot detect the error | extractor 7 |
+| Prescription assigned to the scheme rather than the patient. Two schemes differ in total dose, so a single per-patient prescription is undefined; `rx_dose` and `n_fx` leave the per-patient record as a single-scheme residue and become a per-(patient, scheme) record. That V95% is scheme-relative is correct: arms become commensurable downstream in EQD2 and NTCP, not here | extractor 7, 12 |
+| `baseResolution` rule, two floors, and the `nbProcesses` and cost findings | extractor 3.4, 6.1, X2, X5 |
+
+**Corrected in this round, from the previous one.** The version 5.0 entry described
+`nbProcesses` as a performance parameter to be checked for determinism before being
+excluded from the hash. It is not a performance parameter: it selects a different
+convolution implementation. It is in the hash.
+
+**Open, added.** Whether the prescription (D, n) for a scheme is a cohort constant or
+varies by patient, for instance modulated by proximity to an organ at risk. Addressed
+to the same clinical partners as 7b. It does not block extraction: the indexed form
+of extractor 12 survives either answer.
+
+**Closed, added and resolved in the same round.** The CPU timing of a Morphons
+registration, raised when cupy was found absent and answered by the benchmark above.
+
+---
+
 # Extractor 5.0, one document
 
 Extractor 4.3 to **5.0**. Road, allocator and evaluator unchanged at 7.0, 7.0 and

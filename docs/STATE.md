@@ -1,12 +1,32 @@
 # Project state
 
-**Last updated:** 2026-09-10, at tag `design-v6.3`, after a single-document
-round on the extractor. No supervisory input and no code change: the round
-settles the implementation questions that stood between the extractor
-specification and writing its code, and it moves one document only,
-`extractor_design.md` to **5.0**. The other three are unchanged at road 7.0,
-allocator 7.0, evaluator 6.0. This file and `CHANGELOG.md` are committed with
-it. Detail in `CHANGELOG.md`.
+**Last updated:** 2026-09-11, at tag `design-v6.3`, after two rounds on the
+extraction side taken together. No supervisory input and no code change.
+The first round settled the implementation questions that stood between the
+extractor specification and its code; the second corrected that specification
+against the installed OpenTPS after its API was read rather than assumed.
+`extractor_design.md` goes to **5.1** and `evaluator_design.md` to **6.1**.
+Road and allocator are unchanged at 7.0 and 7.0. This file and `CHANGELOG.md`
+are committed with them. Detail in `CHANGELOG.md`.
+
+**The verification changed the design in three places, which is why the evaluator
+moved at all.** All 34 API entries are present, so the mapping needed no
+correction for absence; reading the signatures and the Morphons source found
+two things no document would have predicted. The deformation field carries its
+own grid, set by `baseResolution`, so there are three grids and not two, and it
+upper-bounds the accuracy of every accumulation. And `DVH.computeDVH` truncates
+its dose axis at 100 Gy absolute, which is harmless for physical dose and would
+silently clip accumulated EQD2 on the hypofractionated arms at the low alpha
+over beta of late-responding organs. The second is the evaluator's territory,
+since it bites where the DVH meets EQD2. The third came from benchmarking rather than
+reading: the deformation field's resolution has two floors and not one, which
+yields a rule for `baseResolution`, and `nbProcesses` is settled against the
+parallel path on measured time. Separately, the units the prescription enters
+`computeVx` in are now fixed, since the wrong choice returns V95% of zero for a
+whole cohort without raising.
+
+The `maxDVH` finding was made before the composition machinery exists to be
+damaged by it.
 
 The round is major on its own document for three reasons: it adds an
 assumptions register that did not exist, it revises the masking rule that had
@@ -57,8 +77,8 @@ All six live in `docs/` at the repository root, alongside `README.md` and
 | --- | --- | --- |
 | `ROAD_TO_PAPER_1.md` | 7.0 | Scientific question, hypothesis, arm set, uncertainty budget, plan budget, endpoint policy, what the paper claims. Open problems register (4.8). Appendix F, single copy |
 | `allocator_design.md` | 7.0 | Optimization problem, algorithm, shadow prices, step-ratio threshold, policy comparison. Assumptions register (11, amended at 11.1 and 11.2) and open decisions (12) |
-| `evaluator_design.md` | 6.0 | Dose composition, accumulation ordering, EQD2 conversion, NTCP evaluation, admissibility screens, strategy construction. Assumptions register (10, amended at 10.1 and 10.2) |
-| `extractor_design.md` | 5.0 | Ingest, plan identity and the export manifest, registration, storage, target metrics, plan complexity, ROI naming, provenance (13). Assumptions register (14), prefix X |
+| `evaluator_design.md` | 6.1 | Dose composition, accumulation ordering, EQD2 conversion, NTCP evaluation, admissibility screens, strategy construction. Assumptions register (10, amended at 10.1 and 10.2) |
+| `extractor_design.md` | 5.1 | Ingest, plan identity and the export manifest, registration, storage, target metrics, plan complexity, ROI naming, provenance (13). Assumptions register (14), prefix X |
 | `CHANGELOG.md` | - | Version history for all four. Kept in the repository, not in the project knowledge |
 
 The evaluator is one version behind the allocator by convention on the major
@@ -306,7 +326,37 @@ whether they can be produced. What replaces it is narrower and is X7: whether
 whether that depends on the licence tier. Not verified: the DICOM conformance
 statements consulted name the beam set dose and do not name evaluation doses.
 
-**Extractor, unblocked, next.** Writing begins from extractor 5.0. Testable now
+**API verified and benchmarked, 11 September 2026.** The 34-entry mapping of
+extractor 3.1 was checked against the installed environment, OpenTPS 3.0.0. All
+present. Two qualifications recorded: the installation is a source checkout
+rather than a distribution, so the commit hash and not the version string is
+what provenance records, and the refactor in progress is not yet pushed.
+Corrections follow in extractor 3.1, 3.4, 6.1, 6.2, 7, 12, X2, X5, 13.2 and 15,
+and in evaluator 7.2 and E10. The general rule extracted from them is that
+nothing is called with its defaults, since all four defaults that matter here
+fail silently rather than loudly.
+
+**Settled by measurement rather than deferred.** `nbProcesses = 1`: the parallel
+path was slower at every grid tested, so the reproducible choice is also the
+fast one and one branch of Morphons is never taken. `baseResolution` below the
+working-grid spacing is excluded: the field takes the finest ladder scale still
+at or above that spacing, so going below costs more and returns a coarser field.
+Setting it equal rather than coarser is the working recommendation and not a
+result, since it buys field resolution with time and the value of that resolution
+in gEUD needs real anatomy; the comparison joins the first-case session. And registration cost is flat in the working-grid choice, being
+set by the ladder rather than the image grid, which removes time from the list
+of criteria for X5 and leaves storage and interpolation accuracy. At sixty registrations,
+twenty patients at three blocks as an illustration rather than a design figure,
+the whole phase is well under an hour and cached.
+
+**Settled by decision, not measurement.** The prescription belongs to the
+fractionation scheme rather than the patient, since two schemes differ in total
+dose; `rx_dose` and `n_fx` accordingly leave the per-patient record, where they
+were a single-scheme residue. Coverage is measured course against course. What
+remains for the clinical partners is whether the prescription varies by patient
+within a scheme, which is added to the 7b list and blocks nothing.
+
+**Extractor, unblocked, next.** Writing begins from extractor 5.1. Testable now
 without patient data: interface contracts and shapes, crop and mask arithmetic
 on fabricated arrays, the content-hash cache, the TG-263 resolution rule
 including that an unmapped structure raises, the provenance table, the manifest
@@ -314,7 +364,9 @@ consistency check, and the registration path against a constructed ground truth
 built with `syntheticDeformation`. Not testable now, and stated as a limit of
 validation rather than of implementation: whether the parser survives a real
 RayStation export (X9), DIR performance on real abdominal anatomy, and the true
-grid and mask dimensions.
+grid and mask dimensions. One item is new: a single Morphons registration should
+be timed on CPU before the cohort phase is sized, since cupy is absent and the
+product of patients, blocks and arms multiplies quickly.
 
 Still without data or supervisory input, all of it blocked on the same thing
 in practice, the first real patient imaging, except where noted:
@@ -329,7 +381,7 @@ in practice, the first real patient imaging, except where noted:
    expected to read zero either way. Blocked on the first exported case,
    since the screen needs real repeat-CT geometry to fire on.
 2. Map the sign of the utility of a hypofractionated photon arm against a standard-schedule one, on synthetic DVHs, over the plausible range of α/β and volume parameter. This no longer decides whether decision 18 is empty; it decides how far the numeraire moves for the patients whose XT-NA is hypofractionated. Requires the endpoint models, so it follows decision 19.
-3. On the first exported case, one measurement session covering four quantities at once, before the storage container is fixed: dose grid dimensions, masked ROI volumes, the ratio of the crop volume to the summed ROI volume (X4), and the ratio of the dose-grid to CT-grid spacing (X5). The last two decide questions that are deferred rather than open.
+3. On the first exported case, one measurement session covering five quantities at once, before the storage container is fixed: dose grid dimensions, masked ROI volumes, the ratio of the crop volume to the summed ROI volume (X4), the ratio of the dose-grid to CT-grid spacing (X5), and the gEUD difference between `baseResolution` at the working-grid spacing and at a coarser setting (X5). The last three decide questions that are deferred rather than open.
 4. Run decision 26 as a feasibility probe on one patient rather than as a question: script one adapted-arm replan per modality from a fixed objective template and record whether the result is acceptable without intervention. The answer sizes the whole cohort phase and is needed before the plan-generation effort is committed.
 5. Draft the metric request to the RTTs, with the target and OAR directions stated separately, to go out with the decision 3 and 12 questions.
 
