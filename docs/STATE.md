@@ -1,15 +1,19 @@
 # Project state
 
-**Last updated:** 2026-09-11, at tag `design-v6.3`, after three rounds on the
-extraction side taken together. No supervisory input. The first round settled
-the implementation questions that stood between the extractor specification
-and its code; the second corrected that specification against the installed
-OpenTPS after its API was read rather than assumed; the third is the first
-actual code for the extractor, written and executed against that same
-environment rather than written on paper and reviewed later. `extractor_design.md`
-goes to **5.2**, `evaluator_design.md` stands at 6.1 from the second round.
-Road and allocator are unchanged at 7.0 and 7.0. This file and `CHANGELOG.md`
-are committed with them. Detail in `CHANGELOG.md`.
+**Last updated:** 2026-09-14, at tag `design-v6.3`. No new tag: nothing since
+`design-v6.3` has changed verified behaviour enough to cut one, extractor
+code included. `extractor_design.md` is at **5.4**, `evaluator_design.md` at
+**6.2**. Road and allocator unchanged at 7.0 and 7.0.
+
+The paragraph below describes the round that produced extractor 5.2 and
+evaluator 6.1; three more rounds followed it and are not re-narrated here,
+only pointed to: extractor 5.3 corrected the ROI-masking code against the
+project's own OpenTPS checkout after it first met the public release only;
+extractor 5.4 added TG-263 resolution and the export manifest, tested
+against both environments from the start; evaluator 6.2 adds the
+implementation strategy for the composition machinery, design only, no code
+yet. Detail for each is in `CHANGELOG.md`; current status for each is in
+Sections 6 and 7 below, not only in this header.
 
 **The third round is a code change, the first this file has to record for the
 extractor.** `src/tps5d/extractor/records.py` and `adapters.py` now exist:
@@ -103,8 +107,8 @@ All six live in `docs/` at the repository root, alongside `README.md` and
 | --- | --- | --- |
 | `ROAD_TO_PAPER_1.md` | 7.0 | Scientific question, hypothesis, arm set, uncertainty budget, plan budget, endpoint policy, what the paper claims. Open problems register (4.8). Appendix F, single copy |
 | `allocator_design.md` | 7.0 | Optimization problem, algorithm, shadow prices, step-ratio threshold, policy comparison. Assumptions register (11, amended at 11.1 and 11.2) and open decisions (12) |
-| `evaluator_design.md` | 6.1 | Dose composition, accumulation ordering, EQD2 conversion, NTCP evaluation, admissibility screens, strategy construction. Assumptions register (10, amended at 10.1 and 10.2) |
-| `extractor_design.md` | 5.3 | Ingest, plan identity and the export manifest, registration, storage, target metrics, plan complexity, ROI naming, provenance (13). Assumptions register (14), prefix X |
+| `evaluator_design.md` | 6.2 | Dose composition, accumulation ordering, EQD2 conversion, NTCP evaluation, admissibility screens, strategy construction. Assumptions register (10, amended at 10.1 and 10.2). Implementation strategy for the composition machinery (11), appended rather than inserted, so existing pointers into this document are unaffected |
+| `extractor_design.md` | 5.4 | Ingest, plan identity and the export manifest, registration, storage, target metrics, plan complexity, ROI naming, provenance (13). Assumptions register (14), prefix X |
 | `CHANGELOG.md` | - | Version history for all four. Kept in the repository, not in the project knowledge |
 
 The evaluator is one version behind the allocator by convention on the major
@@ -274,37 +278,50 @@ What the evaluator itself still needs, once real imaging is available, is
 recorded as a next action in Section 7 rather than here, since it is blocked
 on the same data dependency as the science items there.
 
-**`extractor/` is no longer empty.** `records.py` and `adapters.py` exist,
-against extractor 5.3. `records.py`: `DIRSettings`, `WorkingGrid`, `CropBounds`,
-`TargetMetrics`, `PlanComplexity`, plain dataclasses, no OpenTPS import.
-`adapters.py`, the one module X1 confines every OpenTPS call to: `get_dvf`,
-`target_metrics`, `extract_roi_mask`, `roi_mask_algorithm`, `union_bounding_box`,
-`crop_to_bounds`, `roi_volume_cc`, `extract_plan_complexity`. Two slices done,
-in the order agreed: registration and target metrics first, then ROI masks
-and plan complexity. Next: TG-263 resolution wired to `extract_roi_mask`, the
-export manifest reader, the provenance table, ingest, the importing DVF
-backend stub. Whether these five, or the evaluator's composition machinery of
-Sections 4 to 5 there, come next is an open priority question as of this
-entry, not a default ordering; see the note at the end of Section 7.
+**`extractor/` is no longer empty.** `records.py`, `adapters.py`,
+`roi_mapping.py` and `manifest.py` exist, against extractor 5.4.
+`records.py`: `DIRSettings`, `WorkingGrid`, `CropBounds`, `TargetMetrics`,
+`PlanComplexity`, plain dataclasses, no OpenTPS import. `adapters.py`, the
+one module X1 confines every OpenTPS call to: `get_dvf`, `target_metrics`,
+`extract_roi_mask`, `roi_mask_algorithm`, `extract_roi_mask_by_canonical_name`,
+`union_bounding_box`, `crop_to_bounds`, `roi_volume_cc`,
+`extract_plan_complexity`. `roi_mapping.py`: `load_roi_mapping`,
+`resolve_dicom_name`, no OpenTPS import beyond reading `.name` off an
+already-loaded contour. `manifest.py`: `read_manifest`,
+`check_row_consistency`, `check_manifest`, no OpenTPS import at all, works
+on already-loaded objects' plain attributes. Three slices done, in the order
+agreed: registration and target metrics; ROI masks, crop and plan
+complexity; TG-263 resolution and the manifest. Priority for what comes
+next is settled, detail in the paragraph after next.
 
-**Both slices are now confirmed on both environments this project runs
-against, 14 September 2026.** The first slice, `get_dvf` and `target_metrics`,
-10 tests, was run by Tommaso against the project's own `opentps` checkout on
-11 September: 270 passing. The second slice, ROI masks and plan complexity,
-was not: it was verified only against the public `opentps 3.0.1`, and its
-first run against the project's own checkout failed outright,
-`AttributeError`, since `ROIContour.get_partial_volume_mask` does not exist
-there. That checkout has `getBinaryMask` and `getBinaryMask_old` instead,
-confirmed by Tommaso pasting the source directly: a different rasterisation
-algorithm, ~35% different in measured volume on an identical synthetic
-contour. `extract_roi_mask` now detects which is present via
-`roi_mask_algorithm()` and dispatches rather than assuming; three tests that
-had silently assumed one specific environment were corrected in the same
-round. All 36 tests, 1 conditionally skipped depending on which backend is
-present, pass against both the public release and, since Tommaso provided the
-`opentps_core` source directly, a verified copy of the project's own checkout
-now kept in a separate environment here for exactly this purpose. Detail in
-`CHANGELOG.md`, extractor 5.3.
+**All three slices are confirmed on both environments this project runs
+against, 14 September 2026.** The first, `get_dvf` and `target_metrics`, was
+run by Tommaso against the project's own `opentps` checkout on 11 September:
+270 passing. The second, ROI masks and plan complexity, was not, at first:
+verified only against the public `opentps 3.0.1`, it failed outright against
+the project's own checkout, `AttributeError`, since
+`ROIContour.get_partial_volume_mask` does not exist there. That checkout has
+`getBinaryMask` and `getBinaryMask_old` instead, confirmed by Tommaso pasting
+the source directly: a different rasterisation algorithm, ~35% different in
+measured volume on an identical synthetic contour. `extract_roi_mask` now
+detects which is present via `roi_mask_algorithm()` and dispatches rather
+than assuming; three tests that had silently assumed one specific
+environment were corrected in the same round. The third slice, TG-263 and
+the manifest, was written and tested against both environments from the
+start, using the working copy of the project's own checkout this episode
+established. 62 tests across `test_adapters.py`, `test_roi_mapping.py` and
+`test_manifest.py`, 1 conditionally skipped depending on which ROI-masking
+backend is present, pass against both. Detail in `CHANGELOG.md`, extractor
+5.2 through 5.4.
+
+**Priority for what comes after the extractor's current three slices,
+settled by Tommaso on 14 September 2026:** the evaluator's composition
+machinery, evaluator 4 to 5, still unwritten since before this document
+existed at version 5.0, comes next; then the extractor's remaining items,
+DICOM ingest and the importing DVF backend, which are the two most tied to
+real data anyway. Not defaulted to "extractor first" by momentum, which is
+what the open question in the previous version of this file had flagged as
+a risk.
 
 What the evaluator itself still needs, once real imaging is available, is
 recorded as a next action in Section 7 rather than here, since it is blocked
@@ -413,32 +430,47 @@ were a single-scheme residue. Coverage is measured course against course. What
 remains for the clinical partners is whether the prescription varies by patient
 within a scheme, which is added to the 7b list and blocks nothing.
 
-**Extractor, in progress, both slices confirmed on both environments.** Writing
-began from extractor 5.1 and two slices are done, detail and test counts in
-Section 6: registration and target metrics first, then ROI masks, the union
-bounding box, the crop, and plan complexity. Both are now tested against the
-public OpenTPS release and, separately, a verified copy of the project's own
-checkout, 36 tests, 1 conditionally skipped depending on which ROI-masking
-backend an environment has (extractor 5.3, X10). The registration path is
-tested against a constructed ground truth built with `syntheticDeformation`.
+**Extractor, in progress, three slices confirmed on both environments.** Writing
+began from extractor 5.1. Registration and target metrics first; then ROI
+masks, the union bounding box, the crop, and plan complexity; then TG-263
+resolution and the export manifest, extractor 5.4. 62 tests across
+`test_adapters.py`, `test_roi_mapping.py` and `test_manifest.py`, 1
+conditionally skipped depending on which ROI-masking backend an environment
+has, all passing against both the public OpenTPS release and a verified copy
+of the project's own checkout. The registration path is tested against a
+constructed ground truth built with `syntheticDeformation`; the manifest's
+consistency check is tested against attributes confirmed present by reading
+`readDicomDose`, `readDicomPlan` and `readDicomStruct` directly, not assumed
+from the DICOM standard.
 
-**Still to do**, roughly in the order the pieces depend on each other: the
-TG-263 resolution rule wired to `extract_roi_mask`, since the function today
-takes a literal DICOM name and does no mapping, so "an unmapped structure
-raises" as extractor 9 states it is not yet true above the adapter boundary;
-the export manifest reader and its DICOM consistency check; the provenance
-table of Section 13.1; DICOM ingest; and the importing DVF backend, which
-remains a stub pending the RayStation export conventions of X7 and X9.
+**Priority settled 14 September 2026.** TG-263 and the manifest first, done
+that round; then the evaluator's composition machinery, evaluator 4 to 5,
+in progress as of this entry, detail immediately below; then DICOM ingest
+and the importing DVF backend, the two extractor items most tied to real
+data anyway. Decided by Tommaso, not defaulted to "extractor first" by
+momentum, which is what the open question in an earlier version of this
+file had flagged as a risk.
 
-**Open priority question, raised 14 September 2026 and not yet settled.**
-Whether the five items above come next, or whether the evaluator's
-composition machinery of evaluator 4 to 5, still unwritten since before this
-document existed at version 5.0, takes priority instead. That machinery has
-no site or first-case dependency either, the same as most of the list above,
-so the ordering is not forced by either side; it is an allocation-of-effort
-decision, not a technical one, and belongs with the project's supervisory or
-planning discussion rather than being defaulted to "extractor first" by
-momentum.
+**Evaluator composition machinery, design phase done, code not yet
+written.** `evaluator_design.md` moves to **6.2**: a new Section 11,
+appended rather than inserted so the existing pointers to Sections 10, 10.1
+and 10.2 stay valid, specifies six functions for a new `evaluator/compose.py`,
+`compute_bed`, `warp_bed`, `sum_bed`, `bed_to_eqd2`, `reduce_to_dvh`,
+`geud_from_dvh`, matching Sections 4 and 7.1 of that document exactly rather
+than reinterpreting them. Confirmed rather than assumed: Section 4.1's
+`d_b(x) = D_b(x)/n_b` is exactly the per-fraction dose the extractor already
+stores, so no conversion is needed at the boundary between the two modules.
+Deliberately out of scope: NTCP evaluation itself, `evaluator/ntcp.py` and
+`evaluator/registry.py`, recorded as already implemented above and not read
+or modified this round, since `compose.py`'s output is a DVH, the cache
+boundary Section 7.1 already draws, and what consumes a DVH after that is
+existing machinery, not something to guess an interface for. Code against
+this design is the next step, not yet started as of this entry.
+
+**Still to do in the extractor**, once the evaluator work above is done: the
+provenance table of Section 13.1; DICOM ingest; and the importing DVF
+backend, which remains a stub pending the RayStation export conventions of
+X7 and X9.
 
 Not testable now, and stated as a limit of validation rather than of
 implementation: whether the parser survives a real RayStation export (X9), DIR

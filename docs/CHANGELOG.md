@@ -23,6 +23,155 @@ No other document has been renumbered and the rule stands for the other three.
 
 ---
 
+# Evaluator 6.2, implementation strategy for the composition machinery
+
+Evaluator 6.1 to **6.2**. Extractor, road and allocator unchanged. No
+supervisory input, no code. Design only: Section 11, appended after the
+assumptions register rather than inserted earlier in the document, so the
+existing pointers into Sections 10, 10.1 and 10.2 elsewhere in the project
+stay valid without an audit. The same trade extractor 5.0's renumbering
+accepted the cost of; here the cost is judged not worth paying a second time
+for one new section.
+
+**Why now.** Sections 4 to 7 have specified the composition machinery, BED
+per block, deformation, summation, EQD2 conversion, DVH reduction, since
+before this document existed at version 5.0. Nothing implementing it exists,
+confirmed against STATE.md's own account of what is built. Priority for
+writing it was settled by Tommaso on 14 September 2026, ahead of the
+extractor's remaining items; this round is the design-before-code step for
+it, on the same footing extractor 3 was for that module.
+
+**Six functions proposed for a new `evaluator/compose.py`:** `compute_bed`,
+`warp_bed`, `sum_bed`, `bed_to_eqd2`, `reduce_to_dvh`, `geud_from_dvh`. Each
+is the array operation one row of Section 4 or 7.1 already names; nothing
+new is designed here that those sections do not already specify, this round
+turns specification into function boundaries.
+
+**One compatibility confirmed rather than assumed.** Section 4.1 defines
+`d_b(x) = D_b(x)/n_b`. If `D_b(x)` is a block's total physical dose over its
+`n_b` fractions, this is exactly the per-fraction quantity extractor design
+5 already stores. Checked against the formula's own definition: `compute_bed`
+takes the extractor's stored dose directly, no conversion at the module
+boundary.
+
+**Deliberately out of scope, and why.** `evaluator/ntcp.py` and
+`evaluator/registry.py`, recorded in STATE.md as already implemented, are
+not read or modified this round. `compose.py`'s output is a DVH, the cache
+boundary Section 7.1 already draws; what a DVH feeds into after that is
+existing machinery, and designing an interface to it without having seen its
+source would be guessing, not implementation strategy. Caching, Section
+7.1's table, is also deferred: the three cheap functions are pure by
+construction and cache-wrappable later without a signature change, and the
+expensive stage, warping, is already covered by the extractor's own DVF
+cache.
+
+**Testable now, without code yet.** Section 4.2's worked example, α/β = 3
+Gy, two adjacent voxels at 1 Gy and 5 Gy, a midpoint target voxel,
+deform-then-convert giving 3.60 Gy and convert-then-deform giving 5.40 Gy,
+is named as a golden test to reproduce verbatim rather than re-derive.
+Section 7.2's hypofractionated `maxDVH` numbers, 5 × 8 Gy at α/β = 2 giving
+100 Gy EQD2 and 5 × 10 Gy at α/β = 3 giving 130 Gy, are named the same way.
+`geud_from_dvh` is testable against a uniform-dose case, where gEUD equals
+the dose at any volume parameter, and by hand for a two-value case.
+`warp_bed` adds no new deformation logic, so it inherits extractor 3.3's
+registration test rather than needing its own.
+
+| Change | Where |
+| --- | --- |
+| New Section 11, Implementation strategy: module scope, function list, the confirmed dose-unit compatibility, what is deferred and why, what is testable now | evaluator 11 |
+
+**Open, added.** None. This round states what to test, not what remains
+unverified; genuinely open questions, X7 through X9-adjacent and the
+Section 4.4 and 7.2 measurements, are unchanged by it and are not repeated
+here.
+
+**Next.** `evaluator/compose.py` and its tests, against this section,
+verified on both environments this project runs against as the extractor's
+code has been since the round that produced extractor 5.3.
+
+---
+
+# Extractor 5.4, TG-263 resolution and the export manifest
+
+Extractor 5.3 to **5.4**. Evaluator, road and allocator unchanged. No
+supervisory input. Two new modules, `roi_mapping.py` and `manifest.py`, and
+one new composition in `adapters.py`, `extract_roi_mask_by_canonical_name`.
+26 new tests, `test_roi_mapping.py` and `test_manifest.py`, all passing
+against both the public OpenTPS release and the project's own checkout from
+the first run, using the working copy of that checkout the 5.3 round
+established. 62 tests total across the extractor's three code slices.
+
+**TG-263.** `load_roi_mapping` reads a two-column CSV, `canonical_name,
+dicom_name`, one row per structure, and computes a content hash on load,
+ready for the provenance table of Section 13.1 once it exists. A
+header-only file is a valid, intentionally unpopulated mapping, consistent
+with extractor 9's mechanism-now-content-later pattern; `config/roi_mapping.csv`
+ships as that placeholder. `resolve_dicom_name` matches on mechanical
+normalisation, strip and casefold, never fuzzy matching, and returns the
+contour's own un-normalised name, since the OpenTPS calls it feeds do exact
+comparison. Two distinct failure messages for two distinct problems: a
+canonical name absent from the mapping file needs a row added; a canonical
+name present in the mapping but matching no contour in a given patient's
+RTSTRUCT is a data problem for that patient, not a mapping problem.
+`extract_roi_mask_by_canonical_name` composes this with `extract_roi_mask`
+unchanged, kept as a separate thin function so no name-matching logic ends
+up inside `extract_roi_mask` itself.
+
+**The manifest.** `read_manifest` parses the CSV form of extractor 4's
+schema, with `fx_scheme` stored as two columns, `n_fx` and `dose_per_fx_gy`,
+rather than the single field the design document shows, since a `(n, d)`
+pair has no unambiguous single-CSV-field representation without inventing a
+delimiter; reconstructed as the tuple on read. `arm`, `role` and
+`block_index` are validated on read rather than deferred downstream.
+
+**The DICOM consistency check is built on attributes read from the
+project's own OpenTPS source, not assumed from the DICOM standard.**
+`readDicomDose`, `readDicomPlan` and `readDicomStruct` were read directly on
+14 September 2026: `DoseImage.referencePlan` carries the referenced RTPLAN's
+SOP instance UID; `RTPlan.sopInstanceUID` and `.frameOfReferenceUID` are
+retained; `RTStruct.frameOfReferenceUID` likewise; even `ROIContour` retains
+`.referencedSOPInstanceUIDs`, the exact CT slice UIDs a contour references,
+finer-grained than anything used here. `check_row_consistency` checks three
+things against these: `dose.referencePlan == plan.sopInstanceUID`; the
+manifest's own `plan_uid == plan.sopInstanceUID`; and
+`plan.frameOfReferenceUID == struct.frameOfReferenceUID`. All disagreements
+are collected into one exception rather than raising on the first,
+`check_manifest` extends this across every row in a manifest, since a
+validation pass over a manifest is exactly the situation where seeing every
+problem at once matters more than one per re-run.
+
+**One thing this does not verify, stated as its own extension of X8 rather
+than left implicit.** `frameOfReferenceUID` is treated as identifying "the
+image" for matching a row's `source_image_uid`, a convention this project
+adopts rather than a guarantee DICOM or RayStation makes. Nothing confirms
+RayStation issues a distinct frame of reference per repeat CT rather than
+registering into a shared one; if it does not, the check would pass rows it
+should not. Unverified, joins X9, closes on the first real export.
+
+| Change | Where |
+| --- | --- |
+| Manifest implementation noted: the CSV column split for `fx_scheme`, the three checks and their source attributes, the frame-of-reference caveat | extractor 4 |
+| TG-263 implementation noted: mapping file format, normalisation, the two distinct failure messages, `extract_roi_mask_by_canonical_name` | extractor 9 |
+| X8 extended with the confirmed attribute chain and the frame-of-reference convention as an unverified assumption | extractor 14 |
+| Open items: TG-263 and manifest mechanism closed; frame-of-reference verification added as newly open, joining X9 | extractor 15 |
+
+**Code and tests.**
+
+| File | Contents |
+| --- | --- |
+| `extractor/roi_mapping.py` | `RoiMapping`, `load_roi_mapping`, `resolve_dicom_name`. No OpenTPS import beyond reading `.name` off an already-loaded contour |
+| `extractor/manifest.py` | `ManifestRow`, `read_manifest`, `check_row_consistency`, `check_manifest`. No OpenTPS import: works on already-loaded objects' plain attributes |
+| `extractor/adapters.py` | `extract_roi_mask_by_canonical_name` added |
+| `config/roi_mapping.csv` | Placeholder mapping file, header only |
+| `tests/test_roi_mapping.py`, `tests/test_manifest.py` | 26 tests |
+
+**Priority for what comes next, settled by Tommaso in this round, not by
+this document.** The evaluator's composition machinery, evaluator 4 to 5,
+next; then DICOM ingest and the importing DVF backend. Recorded in STATE.md
+Section 7, not repeated here as a document decision, since it was not one.
+
+---
+
 # Extractor 5.3, the second slice meets the project's own checkout
 
 Extractor 5.2 to **5.3**. Evaluator, road and allocator unchanged. No

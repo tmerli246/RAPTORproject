@@ -515,3 +515,38 @@ def extract_plan_complexity(plan):
         f"two modalities; a plan of another type must be handled "
         f"explicitly here rather than silently returning zeros for both."
     )
+
+
+# ---------------------------------------------------------------------------
+# ROI mask by canonical name (extractor design 9)
+# ---------------------------------------------------------------------------
+
+def extract_roi_mask_by_canonical_name(rtstruct, canonical_name: str, *,
+                                       mapping, grid: WorkingGrid,
+                                       binarization_threshold: float = ROI_BINARIZATION_THRESHOLD,
+                                       precision: int = ROI_RASTER_PRECISION):
+    """extract_roi_mask, preceded by TG-263 resolution.
+
+    A thin composition, not a new mechanism: resolve_dicom_name (roi_mapping.py)
+    turns `canonical_name` into the literal name this specific rtstruct
+    carries, and extract_roi_mask does everything else, containment check,
+    backend dispatch, the single-slice guard, unchanged. Kept separate from
+    extract_roi_mask itself so that function's contract stays "a literal
+    DICOM name in, a mask out" with no name-matching logic anywhere near it,
+    per extractor design 9's prohibition on fuzzy matching creeping in.
+
+    Parameters
+    ----------
+    mapping : roi_mapping.RoiMapping
+        Loaded via roi_mapping.load_roi_mapping.
+
+    Returns
+    -------
+    ROIMask, on `grid`.
+    """
+    from .roi_mapping import resolve_dicom_name
+
+    dicom_name = resolve_dicom_name(rtstruct, canonical_name, mapping)
+    return extract_roi_mask(rtstruct, dicom_name, grid=grid,
+                            binarization_threshold=binarization_threshold,
+                            precision=precision)
