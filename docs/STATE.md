@@ -3,18 +3,22 @@
 **Last updated:** 2026-09-14, at tag `design-v6.3`. No new tag: nothing since
 `design-v6.3` has changed verified behaviour enough to cut one, extractor
 code included. `extractor_design.md` is at **5.4**, `evaluator_design.md` at
-**6.3**. Road and allocator unchanged at 7.0 and 7.0.
+**6.4**. Road and allocator unchanged at 7.0 and 7.0.
 
 The paragraph below describes the round that produced extractor 5.2 and
-evaluator 6.1; four more rounds followed it and are not re-narrated here,
+evaluator 6.1; five more rounds followed it and are not re-narrated here,
 only pointed to: extractor 5.3 corrected the ROI-masking code against the
 project's own OpenTPS checkout after it first met the public release only;
 extractor 5.4 added TG-263 resolution and the export manifest, tested
 against both environments from the start; evaluator 6.2 added the
 implementation strategy for the composition machinery, design only; evaluator
-6.3 implements it, `evaluator/compose.py`, tested on both environments, and
-flags an unresolved numerical discrepancy in the 4.2 worked example rather
-than silently correcting it. Detail for each is in `CHANGELOG.md`; current
+6.3 implemented it, `evaluator/compose.py`, tested on both environments, and
+flagged an unresolved numerical discrepancy in the 4.2 worked example rather
+than silently correcting it; evaluator 6.4, after Tommaso supplied
+`evaluator/ntcp.py` and `evaluator/registry.py`, reconciled `compose.py`
+with the arithmetic they already implement rather than leaving two
+independent copies, and resolved the 4.2 discrepancy with an independent
+third confirmation. Detail for each is in `CHANGELOG.md`; current
 status for each is in Sections 6 and 7 below, not only in this header.
 
 **The third round is a code change, the first this file has to record for the
@@ -109,7 +113,7 @@ All six live in `docs/` at the repository root, alongside `README.md` and
 | --- | --- | --- |
 | `ROAD_TO_PAPER_1.md` | 7.0 | Scientific question, hypothesis, arm set, uncertainty budget, plan budget, endpoint policy, what the paper claims. Open problems register (4.8). Appendix F, single copy |
 | `allocator_design.md` | 7.0 | Optimization problem, algorithm, shadow prices, step-ratio threshold, policy comparison. Assumptions register (11, amended at 11.1 and 11.2) and open decisions (12) |
-| `evaluator_design.md` | 6.3 | Dose composition, accumulation ordering, EQD2 conversion, NTCP evaluation, admissibility screens, strategy construction. Assumptions register (10, amended at 10.1 and 10.2). Implementation strategy for the composition machinery (11), appended rather than inserted, so existing pointers into this document are unaffected. Code implemented and tested on both environments (11.5); a numerical discrepancy in the 4.2 illustration flagged, unresolved |
+| `evaluator_design.md` | 6.4 | Dose composition, accumulation ordering, EQD2 conversion, NTCP evaluation, admissibility screens, strategy construction. Assumptions register (10, amended at 10.1 and 10.2). Implementation strategy for the composition machinery (11), appended rather than inserted, so existing pointers into this document are unaffected. `compose.py` implemented, tested on both environments, and reconciled with `ntcp.py`/`registry.py` after Tommaso supplied them; the 4.2 discrepancy corrected |
 | `extractor_design.md` | 5.4 | Ingest, plan identity and the export manifest, registration, storage, target metrics, plan complexity, ROI naming, provenance (13). Assumptions register (14), prefix X |
 | `CHANGELOG.md` | - | Version history for all four. Kept in the repository, not in the project knowledge |
 
@@ -453,30 +457,35 @@ data anyway. Decided by Tommaso, not defaulted to "extractor first" by
 momentum, which is what the open question in an earlier version of this
 file had flagged as a risk.
 
-**Evaluator composition machinery, designed and implemented, tested on both
-environments.** `evaluator_design.md` is at **6.3**. Section 11 specifies six
-functions for `evaluator/compose.py`, `compute_bed`, `warp_bed`, `sum_bed`,
-`bed_to_eqd2`, `reduce_to_dvh`, `geud_from_dvh`, matching Sections 4 and 7.1
-exactly rather than reinterpreting them; all six are now written, 18 tests
-in `tests/test_compose.py`, passing against both the public OpenTPS release
-and the project's own checkout, 14 September 2026. Confirmed rather than
-assumed: Section 4.1's `d_b(x) = D_b(x)/n_b` is exactly the per-fraction
-dose the extractor already stores, so no conversion is needed at the
-boundary between the two modules. Deliberately out of scope: NTCP evaluation
-itself, `evaluator/ntcp.py` and `evaluator/registry.py`, recorded as already
-implemented above and not read or modified this round, since `compose.py`'s
-output is a DVH, the cache boundary Section 7.1 already draws.
+**Evaluator composition machinery, designed, implemented, tested on both
+environments, and reconciled with the existing NTCP code.**
+`evaluator_design.md` is at **6.4**. Section 11 specifies six functions for
+`evaluator/compose.py`, `compute_bed`, `warp_bed`, `sum_bed`, `bed_to_eqd2`,
+`reduce_to_dvh`, `geud_from_dvh`; 21 tests in `tests/test_compose.py`,
+passing against both the public OpenTPS release and the project's own
+checkout. Tommaso supplied `evaluator/ntcp.py` and `evaluator/registry.py`
+on 14 September 2026, which the 6.2 and 6.3 rounds had explicitly not read.
+Reading them found real overlap the earlier "deliberately out of scope"
+framing had not anticipated: `ntcp.py` already implements `bed`,
+`eqd2_from_bed` and `geud_from_cumulative_dvh`, the same three pieces of
+arithmetic `compose.py`'s first draft had independently written, with a
+different dose convention (total physical dose, not the extractor's
+per-fraction storage) and, for gEUD, a different parameter name (`n`, not
+the `a = 1/n` the first draft invented). `compose.py` no longer computes any
+of the three itself: it calls `ntcp.py` for the biology and confines itself
+to what `ntcp.py`'s own docstring says it does not do, warping, summing on a
+shared grid, and constructing the DVH. Four tests confirm agreement with
+`ntcp.py` directly rather than only matching a hand-computed number.
 
-**A numerical discrepancy found while writing the tests, flagged rather than
-resolved.** Section 4.2's worked example gives EQD2 of a 5 Gy, one-fraction
-voxel at α/β = 3 as 10.00 Gy; independently recomputed by two routes on 14
-September 2026, direct EQD2 formula and BED then conversion, the correct
-value is 8.00 Gy, changing the row's result from 5.40 to 4.40 Gy. The first
-row of that table checks out exactly. Flagged in place at evaluator 4.2 and
-not amended there: whether this is a document error or a misunderstanding of
-what the example intended is for Tommaso to confirm. `test_compose.py`
-deliberately does not use this illustration and is built on independently
-derived numbers instead, detailed in evaluator 11.4 and 11.5.
+**The Section 4.2 discrepancy is resolved, not only flagged.** EQD2 of a
+5 Gy, one-fraction voxel at α/β = 3 is 8.00 Gy, confirmed by `ntcp.bed`/
+`ntcp.eqd2_from_bed` run directly, not only by hand; the design document's
+table now reads 8.00 Gy and a row result of 4.40 Gy. Likely origin: 5×8/4 =
+10.00 exactly, consistent with the denominator having used α/β = 2, the
+Section 7.2 example's value, rather than the 3 this illustration states
+throughout. A plausible transcription, not confirmed as one; Tommaso's own read is that
+it is probably a slip rather than a conceptual disagreement, stated as a
+supposition rather than a certainty.
 
 **Still to do in the extractor**, once the evaluator work above is done: the
 provenance table of Section 13.1; DICOM ingest; and the importing DVF

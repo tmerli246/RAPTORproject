@@ -1,6 +1,6 @@
 # Evaluation Module
 
-Version 6.3. Version history is in `CHANGELOG.md`. Project status and open items are in `STATE.md`.
+Version 6.4. Version history is in `CHANGELOG.md`. Project status and open items are in `STATE.md`.
 
 ## 1. Purpose and scope
 
@@ -100,11 +100,11 @@ Illustration with α/β of 3 Gy, one fraction, two adjacent voxels at 1 Gy and 5
 | Ordering             | Intermediate         | Result  |
 |----------------------|----------------------|---------|
 | Deform, then convert | (1 + 5)/2 = 3.00 Gy  | 3.60 Gy |
-| Convert, then deform | 0.80 Gy and 10.00 Gy | 5.40 Gy |
+| Convert, then deform | 0.80 Gy and 8.00 Gy  | 4.40 Gy |
 
 The example is extreme by construction and is included to make the mechanism visible, not to quantify the expected effect. What makes it relevant here rather than generic is the volume parameter. For a serial-like organ with a small volume parameter, such as rectum at n = 0.09, the generalised equivalent uniform dose approaches maximum dose and therefore draws its weight from the high-gradient region, which is exactly where the error lives. For an endpoint driven by mean dose the error would average out.
 
-**Flagged, not corrected, 14 September 2026.** The "convert, then deform" row does not check out against the stated α/β = 3: EQD2 of the 5 Gy voxel at one fraction and α/β = 3 is D·(d+α/β)/(2+α/β) = 5·8/5 = 8.00 Gy, not the 10.00 Gy given, by two independent routes, the direct EQD2 formula and BED then conversion. That makes the row's result 4.40 Gy rather than 5.40 Gy. The first row checks out exactly. Left as written pending Tommaso's confirmation of what the example intended, rather than silently amended: `evaluator/compose.py`'s tests deliberately do not reproduce this row, and use independently-derived numbers instead. See `CHANGELOG.md`, evaluator 6.3.
+**Corrected 14 September 2026.** The second row's 5 Gy figure was 10.00 Gy; it is 8.00 Gy, D·(d+α/β)/(2+α/β) = 5·8/5, confirmed by two further independent routes: BED then conversion by hand, and `ntcp.bed`/`ntcp.eqd2_from_bed` run directly, both giving 8.00 Gy exactly, and the row's result changes from 5.40 to 4.40 Gy accordingly. The first row was already correct and is unchanged. The likely origin of the error: 5×8/**4** = 10.00 exactly, consistent with the denominator having used α/β = 2, the value in the Section 7.2 example elsewhere in this document, rather than the α/β = 3 this illustration states throughout. A plausible transcription, not confirmed as such. `evaluator/compose.py`'s tests do not depend on this row regardless of the mechanism: they are built on independently derived numbers, detailed in Section 11.5.
 
 ### 4.3 What the ordering costs
 
@@ -313,28 +313,36 @@ New at version 6.2. Sections 4 to 7 specify the composition machinery; nothing i
 
 **Appended rather than inserted.** Extractor 3 sits early in that document because a dedicated renumbering round put it there. No such round has been done here, and doing one now would cost more than it returns: STATE.md and other documents already point at "evaluator 10, 10.1, 10.2" for the assumptions register, and those pointers stay valid only if existing numbers are not moved. This section is therefore 11, not slotted in earlier, following the same numbering-preservation rule CHANGELOG.md states for every document.
 
-### 11.1 Module and scope
+### 11.1 Module and scope, revised after `ntcp.py` and `registry.py` were read
 
-`evaluator/compose.py`. Six functions, each the array operation one row of Section 4 or 7.1 names, and nothing beyond them: no NTCP evaluation. `evaluator/ntcp.py` and `evaluator/registry.py` are recorded as already implemented in STATE.md; this round has not read their source and does not modify them. The boundary is deliberate and is the one Section 7.1 already draws: this module's output is a DVH, the cache boundary, and what happens to a DVH after that is the existing NTCP machinery's concern, not a new one invented here to guess at an interface not yet seen.
+The 6.2 draft of this section stated that `evaluator/ntcp.py` and `evaluator/registry.py` were recorded as already implemented but not read, and that `compose.py` would therefore stop at a DVH and invent nothing about what consumes it. Reading them on 14 September 2026, once Tommaso supplied the files, found more overlap than that boundary anticipated: `ntcp.py` already has `bed`, `eqd2_from_bed` and `geud_from_cumulative_dvh`, the same three pieces of arithmetic `compose.py`'s first draft had independently written. `ntcp.py`'s own docstring states the reason this is a problem, not a redundancy to shrug at: *"Keeping both here and there invites a parameter to be changed in one and not the other, so that a result depends on which module was imported."*
 
-    compute_bed(dose_per_fraction, n_fx, alpha_beta) -> BED array
-    warp_bed(bed_field, dvf) -> BED array, on the fixed image's grid
-    sum_bed(bed_fields: list) -> total BED array
-    bed_to_eqd2(bed_total, alpha_beta) -> EQD2 array
-    reduce_to_dvh(eqd2_field, roi_mask, *, max_dvh=None) -> DVH
-    geud_from_dvh(dvh, a) -> float
+**Revised scope.** `compose.py` does not compute BED, EQD2 or gEUD itself. It calls `ntcp.py` for all three and confines itself to what `ntcp.py`'s own docstring says it deliberately does not do: OpenTPS-geometry-aware operations, warping a field, summing fields on a shared grid, and constructing the DVH, which `ntcp.py` states it takes as given rather than computing. `ntcp.py` is "pure functions only", plain arrays, no OpenTPS objects; `compose.py` is the geometry-aware layer around it.
 
-**A confirmed compatibility, not an assumed one.** Section 4.1 defines `d_b(x) = D_b(x)/n_b`. Extractor design 5 stores physical dose **per fraction**. If `D_b(x)` is the block's total physical dose over its `n_b` fractions, then `D_b(x)/n_b` is exactly the per-fraction quantity the extractor already produces, and `compute_bed` takes the extractor's stored dose directly, with no conversion at the boundary between the two modules. This is checked against the formula's own definition, not assumed because it happened to be convenient.
+    compute_bed(dose_per_fraction, n_fx, alpha_beta) -> BED array          # via ntcp.bed
+    warp_bed(bed_field, dvf) -> BED array, on the fixed image's grid       # no ntcp.py involvement
+    sum_bed(bed_fields: list) -> total BED array                          # no ntcp.py involvement
+    bed_to_eqd2(bed_total, alpha_beta) -> EQD2 array                      # via ntcp.eqd2_from_bed
+    reduce_to_dvh(eqd2_field, roi_mask, *, max_dvh=None) -> DVH           # no ntcp.py involvement
+    geud_from_dvh(dvh, n) -> float                                        # via ntcp.geud_from_cumulative_dvh
+
+**The dose convention had to be bridged, not just confirmed.** Section 4.1 defines `d_b(x) = D_b(x)/n_b`, and extractor design 5 stores physical dose per fraction, so the 6.2 draft concluded no conversion was needed at the boundary. That conclusion assumed `compute_bed` would implement the formula itself. `ntcp.bed(dose, n_fx, ab)` takes `dose` as a segment's **total** physical dose and derives the per-fraction value internally; calling it with the extractor's per-fraction dose directly would silently divide by `n_fx` a second time. `compute_bed` now multiplies by `n_fx` before calling `ntcp.bed`, which divides by `n_fx` again inside: an exact round trip, not an approximation, and it is what lets the module keep the extractor's native per-fraction dose as its own public input while still calling the one place the LQ formula is written down.
+
+**`geud_from_dvh` took `a = 1/n` in the first draft**, a second convention invented before `ntcp.py` had been read. It now takes `n`, matching `ntcp.py` and `registry.py`'s `Model.params['n']` for the `'lkb'` kind, and is a direct unpack-and-delegate to `ntcp.geud_from_cumulative_dvh`, which additionally normalises the volume fractions and raises on an empty DVH, robustness the first draft's own arithmetic lacked.
 
 **`warp_bed` takes an already-computed field, and does not call `get_dvf` itself.** Registration, `extractor.adapters.get_dvf`, is performed once per image pair and cached (extractor design 6); applying a cached field to an array is cheap and repeated once per (block, scheme, α/β) combination (evaluator design 4.3, "four applications... not four registrations"). Keeping the two calls apart, rather than having `warp_bed` reach for `get_dvf` on every call, is what makes that sentence true of the code rather than only of the design. The registration's `moving` and `fixed` are the block's repeat image and the planning CT respectively, per extractor 6.2 and X3; the BED field is a separate array living on that same repeat-image grid, and it is what gets passed to the already-obtained field's `deformImage`, not a parameter of the registration itself.
+
+**Where compose.py's output actually goes**, now visible from `registry.py`: `evaluate()` for the `'lkb'` and `'rseriality'` kinds takes `eqd2_dose` as a plain voxel array and calls `geud()` on it directly, not through a DVH at all. The DVH `reduce_to_dvh` builds is for the cached, repeated-re-evaluation path Section 7.2 describes, perturbing `n` many times without recomputing the accumulated field; the primary, single nominal NTCP evaluation for a strategy takes `bed_to_eqd2`'s array output directly, via `.imageArray`, into `registry.evaluate`. Both paths exist and are both this module's concern to feed correctly, not only the DVH one the 6.2 draft assumed was the sole consumer.
 
 ### 11.2 What is deferred and stated as such
 
 **Caching**, Section 7.1's table, is not implemented this round. `compute_bed`, `sum_bed` and `bed_to_eqd2` are pure functions of hashable inputs by construction, so a content-hash-keyed cache in the style of `DIRSettings.content_hash()` can wrap them later without changing their signatures; deferring the cache is a sequencing choice, not a design gap. `warp_bed` is the expensive stage and is exactly the one the extractor's own DVF cache, keyed by (moving, fixed, settings hash), already covers, so caching at that layer is largely inherited rather than new.
 
-**The Section 7.2 declared approximation**, that a gEUD from a binned DVH differs from a voxel-wise one by an amount controlled by bin width, is stated in the design and is not measured in this round: it requires a real case, per that section's own text, and does not block writing or testing `geud_from_dvh` against synthetic and hand-computed cases.
+**The Section 7.2 declared approximation**, that a gEUD from a binned DVH differs from a voxel-wise one by an amount controlled by bin width, is stated in the design and is not measured in this round: it requires a real case, per that section's own text, and does not block writing or testing `geud_from_dvh` against synthetic and hand-computed cases. `ntcp.py`'s own `geud()`, the direct voxel-wise route, and `geud_from_cumulative_dvh`, now confirmed as the two routes this approximation compares, are both already implemented; only the real-case comparison itself remains open.
 
 **The Section 4.4 sensitivity measurement**, the alternative ordering computed once on a real case, is unaffected by this round for the same reason: no real case exists yet to compute it on.
+
+**Wiring `compose.py`'s output into `registry.evaluate` end to end**, beyond confirming the interface shape above, is not done this round either: it requires a cohort object with the `.rois`/`.covariates` shape `validate_cohort` expects, which belongs with the ingest work of extractor items 5 and 6, not with this round.
 
 ### 11.3 What is testable now, and what is not
 
@@ -342,21 +350,23 @@ Testable now, and where Sections 11.4 and 11.5 record what was exercised: `compu
 
 Not testable now: whether the composed EQD2 field is correct on real anatomy, which needs real dose and real deformation fields rather than synthetic ones; and the Section 4.4 and 7.2 measurements stated above as deferred.
 
-### 11.4 The Section 4.2 illustration, and why it is not the golden test after all
+### 11.4 The Section 4.2 illustration, and why it is not the golden test regardless
 
-Section 4.2 states a worked example: α/β = 3 Gy, one fraction, two adjacent voxels at 1 Gy and 5 Gy, a target voxel midway. The plan was to reproduce it verbatim as a test fixture. Recomputing it while writing the test found that the second row does not check out, flagged in place at 4.2 rather than silently amended there or here. The test suite therefore does not use this illustration: it uses numbers derived and checked independently of the design document's prose, named in 11.5.
+Section 4.2 stated a worked example: α/β = 3 Gy, one fraction, two adjacent voxels at 1 Gy and 5 Gy, a target voxel midway. The plan was to reproduce it verbatim as a test fixture. Recomputing it while writing the test found that the second row did not check out; corrected in place at 4.2, confirmed independently via `ntcp.bed`/`ntcp.eqd2_from_bed` once those became available. Even corrected, it is not adopted as the golden test: the test suite is built on numbers derived and checked independently of the design document's prose throughout, named in 11.5, which is the more conservative choice given one number in this document has already needed correcting once.
 
-### 11.5 Implemented at version 6.3, tested on both environments
+### 11.5 Implemented at version 6.3, tested on both environments, reconciled with `ntcp.py`
 
-`evaluator/compose.py`: `compute_bed`, `warp_bed`, `sum_bed`, `bed_to_eqd2`, `reduce_to_dvh`, `geud_from_dvh`, matching Section 11.1's signatures. 18 tests in `tests/test_compose.py`, passing against both the public OpenTPS release and the project's own checkout, 14 September 2026.
+`evaluator/compose.py`: `compute_bed`, `warp_bed`, `sum_bed`, `bed_to_eqd2`, `reduce_to_dvh`, `geud_from_dvh`, matching Section 11.1's revised signatures. 21 tests in `tests/test_compose.py`, passing against both the public OpenTPS release and the project's own checkout, 14 September 2026.
 
-**One thing found writing `geud_from_dvh` that neither this document nor extractor's V95% work had needed before.** `DVH.histogram` is **cumulative**, confirmed by reading `computeDVH`'s source directly: volume in percent, "volume receiving at least this dose", the same convention `computeVx` and `computeDx` already rely on. The gEUD sum needs *differential* per-bin volume fractions. Recovered as a first difference of the cumulative array, `v_i = volume[i] - volume[i+1]`, the last bin taking its own cumulative value in place of a notional `volume[N] = 0` beyond the axis. Not registered as a new assumption, since it is arithmetic derived from a confirmed source read rather than a choice with an alternative.
+**Delegation is tested directly, not only by matching numbers.** Four tests call `ntcp.bed`, `ntcp.eqd2_from_bed` and `ntcp.geud_from_cumulative_dvh` alongside the corresponding `compose.py` function and assert the results agree, rather than only checking `compose.py`'s output against a hand-computed value that could coincidentally match a second, independent formula.
 
-**Verified by construction rather than only by test.** `bed_to_eqd2` reproduces the algebraic identity that at exactly 2 Gy per fraction, EQD2 equals total physical dose for any α/β, since the α/β-dependent terms in BED and in the EQD2 denominator cancel; checked algebraically before being written as a test rather than the reverse. The Section 7.2 hypofractionated numbers, 5 × 8 Gy at α/β = 2 giving 100 Gy and 5 × 10 Gy at α/β = 3 giving 130 Gy, were independently recomputed before use as fixtures and matched exactly, unlike the 4.2 illustration.
+**One thing found writing `geud_from_dvh`'s first draft, before `ntcp.py` was available to compare against.** `DVH.histogram` is **cumulative**, confirmed by reading `computeDVH`'s source directly: volume in percent, "volume receiving at least this dose", the same convention `computeVx` and `computeDx` already rely on. `ntcp.geud_from_cumulative_dvh`, now known to already exist, recovers the differential form the same way this section's first draft independently derived, `v_i = volume[i] - volume[i+1]`, confirming the derivation rather than replacing it, and adds normalisation and an empty-DVH check the first draft lacked.
+
+**Verified by construction rather than only by test.** `bed_to_eqd2`, via `ntcp.eqd2_from_bed`, reproduces the algebraic identity that at exactly 2 Gy per fraction, EQD2 equals total physical dose for any α/β, since the α/β-dependent terms in BED and in the EQD2 denominator cancel; checked algebraically before being written as a test rather than the reverse. The Section 7.2 hypofractionated numbers, 5 × 8 Gy at α/β = 2 giving 100 Gy and 5 × 10 Gy at α/β = 3 giving 130 Gy, were independently recomputed before use as fixtures and matched exactly, unlike the 4.2 illustration, which `ntcp.bed`/`ntcp.eqd2_from_bed` also confirmed independently once available: Section 4.2.
 
 **`warp_bed` is tested as the thin delegation it is stated to be**, against a synthetic zero-displacement field, checking it returns exactly what `Deformation3D.deformImage` returns: the deformation logic itself is extractor 3.3's registration test, not re-tested here.
 
-**Not yet done.** Caching, per 11.2. Integration with `evaluator/ntcp.py` and `evaluator/registry.py`, not read this round. The Section 4.4 sensitivity measurement and the Section 7.2 declared gEUD-binning approximation, both requiring a real case.
+**Not yet done.** Caching, per 11.2. Wiring `compose.py`'s EQD2 output into `registry.evaluate` end to end against a real cohort object, per 11.2. The Section 4.4 sensitivity measurement and the Section 7.2 declared gEUD-binning approximation, both requiring a real case.
 
 ## Appendix F. Fractionation
 

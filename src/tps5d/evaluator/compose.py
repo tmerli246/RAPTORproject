@@ -1,10 +1,29 @@
 """Dose composition: BED per block, warping, summation, EQD2, DVH, gEUD.
 
 Evaluator design 4, 5 and 7.1 specify this machinery; this module turns the
-specification into functions, evaluator design 11. Each function is the
-array operation one row of those sections names, and nothing more:
-evaluator/ntcp.py and evaluator/registry.py are not touched here, since this
-module's output is a DVH, the cache boundary evaluator 7.1 already draws.
+specification into functions, evaluator design 11. It does **not**
+reimplement the biological math: `evaluator/ntcp.py` already has `bed`,
+`eqd2_from_bed` and `geud_from_cumulative_dvh`, confirmed by reading it
+directly on 14 September 2026, and its own docstring states the reason not
+to duplicate them, that a parameter changed in one copy and not the other
+makes a result depend on which module was imported. This module's job is
+narrower and is what `ntcp.py` explicitly does not do, by its own
+docstring: OpenTPS-geometry-aware operations, warping a field, summing
+fields on a shared grid, and constructing the DVH `ntcp.py` says it takes
+as given rather than computing. Every array of actual biology, BED, EQD2,
+gEUD, is computed by calling into `ntcp.py`, not by this module's own
+arithmetic.
+
+**Dose convention bridged, not changed.** `ntcp.bed(dose, n_fx, ab)` takes
+`dose` as a segment's **total** physical dose. Extractor design 5 stores
+dose **per fraction**. `compute_bed` below takes the extractor's native
+per-fraction form, since that is what every caller actually has, and
+multiplies by `n_fx` before calling `ntcp.bed`, which immediately divides
+by `n_fx` again to recover the per-fraction value internally. The
+round trip costs nothing numerically and changes nothing in `ntcp.py`;
+it exists so this module's public signature matches what the extractor
+produces without asking every caller to remember a second dose
+convention.
 
 Geometry-preserving throughout: every function that transforms an
 Image3D-family object (DoseImage or a plain BED/EQD2 field of the same
@@ -18,15 +37,11 @@ import numpy as np
 
 from opentps.core.data import DVH
 
+from . import ntcp
+
 
 def compute_bed(dose_per_fraction, n_fx: int, alpha_beta: float):
-    """BED_b(x) = n_b . d_b(x) . (1 + d_b(x)/(alpha/beta)), evaluator design 4.1.
-
-    d_b(x) here is `dose_per_fraction`'s own array directly: evaluator
-    design 4.1 defines d_b(x) = D_b(x)/n_b, and extractor design 5 already
-    stores physical dose per fraction, so D_b(x)/n_b is exactly what is
-    passed in. Confirmed against the formula's own definition, not assumed
-    because it is convenient (evaluator design 11.1).
+    """BED_b(x) via ntcp.bed, from the extractor's per-fraction dose.
 
     Parameters
     ----------
@@ -44,11 +59,11 @@ def compute_bed(dose_per_fraction, n_fx: int, alpha_beta: float):
     -------
     Same type as `dose_per_fraction`, same geometry, BED values.
     """
-    d = dose_per_fraction.imageArray
-    bed = n_fx * d * (1.0 + d / alpha_beta)
+    total_dose = dose_per_fraction.imageArray * n_fx
+    bed_array = ntcp.bed(total_dose, n_fx, alpha_beta)
 
     result = dose_per_fraction.copy()
-    result._imageArray = bed.astype(np.float32)
+    result._imageArray = np.asarray(bed_array, dtype=np.float32)
     return result
 
 
@@ -127,9 +142,9 @@ def sum_bed(bed_fields: list):
 
 
 def bed_to_eqd2(bed_total, alpha_beta: float):
-    """EQD2(x) = BED_total(x) / (1 + 2/(alpha/beta)), evaluator design 4.1.
+    """EQD2(x) via ntcp.eqd2_from_bed, applied once to the summed field.
 
-    Applied once, to the summed field, never per block: converting before
+    Applied to the summed field, never per block: converting before
     summation would be the ordering evaluator design 4.1 rejects, since the
     conversion is nonlinear and does not commute with the deformation
     already applied to each block. This function does not know or check
@@ -141,16 +156,18 @@ def bed_to_eqd2(bed_total, alpha_beta: float):
     -------
     Same type as `bed_total`, same geometry, EQD2 values.
     """
-    bed = bed_total.imageArray
-    eqd2 = bed / (1.0 + 2.0 / alpha_beta)
+    eqd2_array = ntcp.eqd2_from_bed(bed_total.imageArray, alpha_beta)
 
     result = bed_total.copy()
-    result._imageArray = eqd2.astype(np.float32)
+    result._imageArray = np.asarray(eqd2_array, dtype=np.float32)
     return result
 
 
 def reduce_to_dvh(eqd2_field, roi_mask, *, max_dvh: float = None):
     """DVH of an accumulated EQD2 field over one ROI, evaluator design 7.1's cache boundary.
+
+    ntcp.py's own docstring states it takes the DVH as given rather than
+    computing one: this function is that supplier.
 
     `max_dvh`, when not given, is set from the field's own maximum with a
     5% margin, never left at DVH.computeDVH's 100 Gy absolute default:
@@ -176,8 +193,7 @@ def reduce_to_dvh(eqd2_field, roi_mask, *, max_dvh: float = None):
     DVH, no prescription set: this DVH is on EQD2, where a percentage of
     prescription is not a meaningful quantity (extractor design 7's scope
     note makes the same point for the extractor's own DVH use). Metrics
-    read off it, D98/D95/Dmean and gEUD via geud_from_dvh, are all in
-    absolute Gy or derived from the histogram directly.
+    read off it, D98/D95/Dmean directly, gEUD via geud_from_dvh below.
     """
     if max_dvh is None:
         max_dvh = float(eqd2_field.imageArray.max()) * 1.05
@@ -187,45 +203,23 @@ def reduce_to_dvh(eqd2_field, roi_mask, *, max_dvh: float = None):
     return dvh
 
 
-def geud_from_dvh(dvh, a: float) -> float:
-    """gEUD = (sum_i v_i . D_i^a)^(1/a), evaluator design 7.2.
+def geud_from_dvh(dvh, n: float) -> float:
+    """gEUD via ntcp.geud_from_cumulative_dvh, from a DVH's own histogram.
 
-    v_i here must be the *differential* volume fraction in bin i, not the
-    cumulative value DVH.histogram returns. Read from the installed
-    OpenTPS source on 14 September 2026: `computeDVH` builds `_volume` as
-    a cumulative-from-the-top histogram, in percent, "volume receiving at
-    least this dose", the standard clinical DVH convention and the same
-    one `computeVx`/`computeDx` already rely on. The differential form is
-    recovered by a first difference: since `_volume` is non-increasing in
-    dose, `volume[i] - volume[i+1]` is exactly the fraction of volume
-    whose dose falls in bin i, with the last bin's own cumulative value
-    standing in for `volume[i+1] = 0` beyond the axis.
+    `n` is the LKB volume parameter, matching ntcp.py's and registry.py's
+    own convention (Model.params['n'] for the 'lkb' kind) rather than the
+    `a = 1/n` this function took in an earlier draft: that was a second,
+    unnecessary convention invented before ntcp.py had been read, and is
+    removed rather than kept alongside the established one.
 
-    a = 1/n, evaluator design 7.2: this function takes `a` directly rather
-    than `n`, so a caller working from either convention states which one
-    it means at the call site instead of this function guessing.
-
-    Uniform dose gives gEUD equal to that dose at any `a`, since a single
-    bin then holds essentially all the differential mass; this is the
-    identity the tests in evaluator's compose test suite check first.
+    This is a thin unpack-and-delegate: `dvh.histogram` returns exactly the
+    (dose_bins, cumulative_volume_pct) pair ntcp.geud_from_cumulative_dvh
+    expects, confirmed by reading both sides on 14 September 2026, so there
+    is no conversion left to do here, only the call.
 
     Returns
     -------
     float, Gy.
     """
-    dose, cum_volume_pct = dvh.histogram
-    cum_volume_pct = np.asarray(cum_volume_pct, dtype=np.float64)
-    dose = np.asarray(dose, dtype=np.float64)
-
-    diff_volume_pct = -np.diff(cum_volume_pct, append=0.0)
-    v = diff_volume_pct / 100.0   # fraction of total ROI volume, sums to ~1
-
-    # dose can be zero or negative in the lowest bin only in pathological
-    # cases; guard against 0**a for a < 0, which is the LKB convention
-    # (a = 1/n, n small and positive, a large and positive) but not
-    # guaranteed by this function's own contract.
-    with np.errstate(divide='ignore'):
-        powered = np.where(dose > 0, dose ** a, 0.0)
-
-    weighted_sum = np.sum(v * powered)
-    return float(weighted_sum ** (1.0 / a))
+    dose_bins, cum_volume_pct = dvh.histogram
+    return ntcp.geud_from_cumulative_dvh(dose_bins, cum_volume_pct, n)

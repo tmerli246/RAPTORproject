@@ -23,6 +23,83 @@ No other document has been renumbered and the rule stands for the other three.
 
 ---
 
+# Evaluator 6.4, reconciled with the existing NTCP code
+
+Evaluator 6.3 to **6.4**. Extractor, road and allocator unchanged. No
+supervisory input. Tommaso supplied `evaluator/ntcp.py` and
+`evaluator/registry.py`, which the 6.2 and 6.3 rounds had explicitly stated
+were not read. Reading them found real overlap: `ntcp.py` already
+implements `bed`, `eqd2_from_bed` and `geud_from_cumulative_dvh`, the same
+three pieces of arithmetic `compose.py`'s first draft had independently
+written. `ntcp.py`'s own docstring names the risk this creates: a parameter
+changed in one copy and not the other, so a result depends on which module
+was imported.
+
+**`compose.py` no longer computes BED, EQD2 or gEUD itself.** It calls
+`ntcp.py` for all three and keeps only what `ntcp.py`'s own docstring says
+it deliberately does not do: warping a field, summing fields on a shared
+grid, constructing the DVH `ntcp.py` states it takes as given. `compute_bed`
+bridges a genuine convention mismatch rather than papering over it:
+`ntcp.bed` expects a segment's total physical dose, extractor design 5
+stores dose per fraction, so `compute_bed` multiplies by `n_fx` before
+calling `ntcp.bed`, which divides by `n_fx` again internally, an exact
+round trip. `geud_from_dvh` now takes `n`, the LKB volume parameter matching
+`ntcp.py` and `registry.py`'s `Model.params['n']`, in place of the
+`a = 1/n` an earlier draft had invented before `ntcp.py` was available to
+compare against.
+
+**The Section 4.2 discrepancy, flagged rather than resolved in the 6.3
+round, is resolved in this one.** `ntcp.bed`/`ntcp.eqd2_from_bed` run
+directly give EQD2 of the 5 Gy, one-fraction voxel at α/β = 3 as 8.00 Gy, a
+third independent confirmation after the direct formula and BED-then-
+conversion by hand. The design document's table is corrected: 8.00 Gy, row
+result 4.40 Gy. Tommaso's own read, stated as a supposition rather than a
+certainty, is that it is a transcription slip rather than a conceptual
+disagreement; the likely mechanism, 5×8/4 = 10.00 exactly, is consistent
+with the denominator having used α/β = 2, the value the Section 7.2 example
+elsewhere in the document uses, rather than the 3 this illustration states
+throughout.
+
+**Where `compose.py`'s output actually goes, now visible from
+`registry.py`.** `evaluate()` for the `'lkb'` and `'rseriality'` kinds calls
+`geud()` directly on a voxel array, not through a DVH: the primary, single
+nominal NTCP evaluation for a strategy takes `bed_to_eqd2`'s array output
+directly. The DVH `reduce_to_dvh` builds is for the cached,
+repeated-re-evaluation path Section 7.2 describes, perturbing `n` many
+times without recomputing the accumulated field. Both paths exist and both
+are this module's concern to feed correctly; the 6.3 round's framing, that
+`compose.py`'s output is a DVH and nothing past it is this module's
+problem, undersold the primary path.
+
+**Four tests added, confirming delegation directly rather than only
+matching a number**: `compute_bed` against `ntcp.bed` with the equivalent
+total-dose input; `bed_to_eqd2` against `ntcp.eqd2_from_bed`; `geud_from_dvh`
+against `ntcp.geud_from_cumulative_dvh` on the same DVH's histogram. Three
+existing `TestGeudFromDvh` tests renamed and rewritten from `a` to `n`
+throughout. 21 tests total, passing against both the public OpenTPS release
+and the project's own checkout.
+
+| Change | Where |
+| --- | --- |
+| 4.2 table corrected: 8.00 Gy, row result 4.40 Gy, with the likely transcription mechanism recorded | evaluator 4.2 |
+| 11.1 substantially rewritten: scope revised around delegation to `ntcp.py`, dose-convention bridge explained, `geud_from_dvh`'s parameter corrected to `n`, the two consumption paths for `compose.py`'s output both named | evaluator 11.1 |
+| 11.2 extended: wiring into `registry.evaluate` against a real cohort object named as deferred, tied to extractor items 5 and 6 | evaluator 11.2 |
+| 11.4 updated: the 4.2 illustration is corrected, not only flagged, and is still not the golden test | evaluator 11.4 |
+| 11.5 rewritten: 21 tests, delegation confirmed directly, the `ntcp.py` reconciliation summarised | evaluator 11.5 |
+
+**Code and tests.**
+
+| File | Change |
+| --- | --- |
+| `evaluator/compose.py` | `compute_bed` and `bed_to_eqd2` delegate to `ntcp.bed`/`ntcp.eqd2_from_bed`; `geud_from_dvh` delegates to `ntcp.geud_from_cumulative_dvh` and takes `n` instead of `a`; `warp_bed`, `sum_bed`, `reduce_to_dvh` unchanged, since none has an `ntcp.py` counterpart |
+| `tests/test_compose.py` | Four delegation tests added; `TestGeudFromDvh` rewritten for the `n` convention; 21 tests total |
+
+**Open, added.** None new. Everything Section 11.2 already deferred remains
+deferred, now including the `registry.evaluate` end-to-end wiring named
+explicitly rather than left implicit.
+
+---
+
 # Evaluator 6.3, the composition machinery implemented
 
 Evaluator 6.2 to **6.3**. Extractor, road and allocator unchanged. No
