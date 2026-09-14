@@ -23,6 +23,199 @@ No other document has been renumbered and the rule stands for the other three.
 
 ---
 
+# Extractor 5.3, the second slice meets the project's own checkout
+
+Extractor 5.2 to **5.3**. Evaluator, road and allocator unchanged. No
+supervisory input. `records.py` unchanged; `adapters.py` gains a
+dual-backend dispatch for ROI mask extraction; `tests/test_adapters.py` grows
+by one test and three others are corrected. 36 tests total, 1 conditionally
+skipped depending on which backend an environment has, all passing against
+both the public OpenTPS 3.0.1 and, newly, a verified installation of the
+project's own `opentps_core` checkout, supplied directly by Tommaso and kept
+in a separate environment here from this round on.
+
+**What happened.** Extractor 5.2's code was written and verified only against
+`opentps 3.0.1`. Tommaso ran the same suite against the project's own
+checkout: 10 of 29 tests passing, `AttributeError:
+'ROIContour' object has no attribute 'get_partial_volume_mask'` on the rest.
+Asked to check rather than have it assumed, Tommaso pasted `ROIContour`'s
+method list and `getBinaryMask`'s full source from that checkout directly.
+It is not the deprecated wrapper the public release carries: no
+`binarization_threshold`, no `precision`, a hard polygon fill via PIL,
+boolean by construction, with its own undocumented behaviour, ignoring
+`gridSize` and `spacing` entirely whenever `origin` is left `None`, and its
+own silent-failure edge case, `imageArray=None` on a contour with a single
+z-slice, with no exception raised. A follow-up script confirmed the one fact
+reading could not settle: that this implementation does honour an explicitly
+supplied grid rather than silently returning its own native one.
+
+**The fix.** `roi_mask_algorithm()`, a new function, detects which of the two
+implementations is present via `hasattr`, not by assuming an environment.
+`extract_roi_mask` calls whichever is found, and raises `ValueError` if a
+caller has overridden `binarization_threshold` or `precision` on an
+environment where `getBinaryMask` would otherwise ignore them without any
+signal at all. The single-z-slice `imageArray=None` case is checked for
+explicitly and raises. The physical-containment guard added in 5.2 runs
+before backend dispatch, unconditionally, since neither implementation
+signals a grid mismatch safely on its own.
+
+**Measured, not assumed: the two algorithms are not equivalent.** On an
+identical synthetic cylinder, `get_partial_volume_mask` at its 0.5 threshold
+and `getBinaryMask`'s hard polygon fill differ by roughly 35% in resulting
+volume. Which one runs is therefore not an implementation detail; it changes
+the number, and provenance must eventually record it, per X10, once the
+table of extractor 13.1 exists.
+
+**Three tests were wrong, not the code they were testing, and the diagnosis
+differed for each.** `test_algorithm_matches_installed_environment` had
+asserted the sandbox's own state as a universal fact; corrected to accept
+either valid value. `test_binarization_threshold_changes_volume_monotonically`
+failed because the new guard correctly raised on a parameter that has no
+meaning on `getBinaryMask`; corrected to skip where that backend is active,
+since the property under test does not exist there rather than being
+implemented wrongly. `test_two_disjoint_masks_union_covers_both` used two
+single-z-slice contours as an incidental convenience and tripped the
+`imageArray=None` edge case by accident; the fixture was changed to
+multi-slice contours, and the edge case itself, confirmed for the first time
+against real behaviour rather than only against source, was given its own
+dedicated test, itself conditioned to skip where `get_partial_volume_mask`
+is present, since there `getBinaryMask` is the deprecated forwarding wrapper
+and does not exhibit the old implementation's bug.
+
+**A working copy of the project's own OpenTPS**, supplied as a zip of
+`opentps_core`, is now installed in a dedicated virtual environment here,
+verified against the method list and source Tommaso pasted before being
+trusted. Code that touches OpenTPS is checked against it before being
+delivered, not only against the public release. It needs refreshing after
+each pull from upstream; the public release remains useful afterwards, as a
+check that a finding is not an artefact of one specific checkout.
+
+| Change | Where |
+| --- | --- |
+| API table's ROI handling row rewritten around the confirmed dual-backend situation | extractor 3.1 |
+| Note added: the refactor-coupling concern of 3.2 stopped being hypothetical; the project's own checkout is now tested against directly | extractor 3.2 |
+| `get_partial_volume_mask` instance in 3.4 qualified: applies only where the method is present at all | extractor 3.4 |
+| Dual rasterisation backend and the confirmed ~35% volume difference recorded; the single-z-slice silent-failure edge case of the older implementation added | extractor 9 |
+| X10 rewritten around the confirmed two-backend dispatch rather than a single adopted threshold | extractor 14 |
+| First-case measurement session item updated: which backend ran is now a confirmed, not hypothetical, source of volume difference | extractor 15 |
+
+**Code and tests.**
+
+| File | Change |
+| --- | --- |
+| `extractor/adapters.py` | `roi_mask_algorithm()` added; `extract_roi_mask` dispatches on it, raises on a silently-ignored override, and checks for the single-slice `None` case |
+| `tests/test_adapters.py` | One test added (single-slice edge case, environment-conditioned); three corrected to be environment-aware rather than assuming one specific OpenTPS |
+
+**Open, added.** Whether the extractor's remaining items (TG-263, manifest,
+provenance, ingest, the importing DVF backend) take priority over the
+evaluator's composition machinery, still unwritten since before this
+document existed at version 5.0. Raised 14 September 2026, not settled in
+this round: STATE.md Section 7.
+
+---
+
+# Extractor 5.2, first code
+
+Extractor 5.1 to **5.2**. Evaluator, road and allocator unchanged at 6.1, 7.0
+and 7.0. No supervisory input. The first code this document's specification
+has been written against: `src/tps5d/extractor/records.py` and `adapters.py`,
+two slices, in the order agreed with Tommaso: registration and target metrics
+first, then ROI masks, the union bounding box, the crop, and plan complexity.
+29 new tests in `tests/test_adapters.py`. The first slice, 10 tests, was run
+by Tommaso against the project's own `opentps 3.0.0`: 270 passing. The second,
+19 tests, was written and run only against the public `opentps 3.0.1` in the
+working sandbox: 289 passing there, not yet confirmed against `3.0.0`.
+
+**Why the round is a document change and not only a code change.** Running the
+code against the installed environment found five things reading the API alone
+had not surfaced, three of them defects in behaviour the design had assumed
+correct. Each is carried in the section it bears on, so the design document
+stays the record of what is true, not a log of how it was discovered; that log
+is this entry.
+
+**Finding 1, `Deformation3D.resample` mutates in place and returns `None`.**
+Confirmed by constructing one directly: the return value is `None`, the object's
+own `gridSize` changes. `get_dvf` originally read `return field.resample(...)`,
+which would have silently discarded the field on every call. No document
+statement was wrong, since extractor 6.1 already said the adapter resamples
+explicitly; the code's first attempt at that resampling was wrong, and running
+it is what caught it before any test built on top of a `None`.
+
+**Finding 2, a self-inflicted repeat of the `maxDVH` bug, on the opposite tail.**
+`target_metrics` set `maxDVH` from the observed course-dose maximum with a 5%
+margin, closing the 100 Gy absolute truncation of the version 5.1 round. Run
+against a cold plan, this raises `IndexError`: the dose-percentage axis then
+tops out below 95% of prescription, so `DVH.computeVx(95)` calls
+`np.searchsorted` past the end of the array. The fix widens the floor to
+`max(observed_max, rx_dose) * 1.05`, covering both tails. Recorded nowhere as
+its own assumption, since it is an implementation bug found and closed within
+the same round rather than a standing uncertainty; the test that caught it,
+`test_cold_plan_returns_zero_not_an_error`, pins the corrected behaviour so it
+cannot regress silently.
+
+**Finding 3, `getBinaryMask` is deprecated.** It forwards to
+`get_partial_volume_mask`, whose own default for `binarization_threshold` is
+`None`, returning a float partial-volume array rather than the bool the
+storage schema of extractor 5 requires. `extract_roi_mask` calls
+`get_partial_volume_mask` directly, with `binarization_threshold` and
+`precision` always explicit. New assumption **X10**: threshold 0.5, matching
+what the deprecated wrapper hardcoded. Carried in extractor 3.1 and 3.4.
+
+**Finding 4, `RTStruct.getContourByName` does not raise on a miss.** It prints
+to stdout and returns `None`. Extractor 9's "an unmapped structure raises" is
+therefore this project's own wrapper, converting that `None` into `KeyError`
+with the attempted name and the structures actually present, rather than a
+property inherited from the platform. Carried in extractor 9.
+
+**Finding 5, `get_partial_volume_mask` fails unsafely on a grid that does not
+contain the contour.** It proceeds and only logs that this "can appear as a
+shift or truncation". That internal logging call is itself malformed,
+`logger.warning(msg, RuntimeWarning, stacklevel=2)` passes a class as a
+%-format argument to a message with no placeholder, and raises `TypeError`
+under logging configurations that format eagerly, confirmed under `pytest`'s
+own capture. `extract_roi_mask` computes the contour's physical bounding box
+from `polygonMesh` and checks containment itself, before the call, rather than
+depending on a warning that can crash instead of printing. Carried in
+extractor 3.4 and 5.
+
+**A sixth thing, not a defect but a wrong assumption of this project's own.**
+`ROIMask.getVolume(inVoxels=False)` returns mm³, not cc, despite the name.
+`roi_volume_cc` in `adapters.py` is now the one place the factor of 1000 is
+applied. Folded into X4 rather than given its own number, since X4 already
+governs what the crop and its masked volumes mean.
+
+| Change | Where |
+| --- | --- |
+| API table's ROI handling and plan complexity rows rewritten against `get_partial_volume_mask` and the confirmed aggregation behaviour of `RTPlan.beams` and `ProtonPlan` | extractor 3.1 |
+| Two more instances of "nothing is called with its defaults": `binarization_threshold`, and the grid-containment check that replaces trusting OpenTPS's own malformed warning | extractor 3.4 |
+| Concrete crop implementation noted: `union_bounding_box` and `crop_to_bounds`, inclusive bounds, type preserved via each class's own `.copy()` override rather than the base `Image3D.copy()`, which does not preserve subclass type | extractor 5 |
+| Plan complexity implementation noted: dispatch on `isinstance`, not on a caller-supplied label, so a mislabelled plan raises rather than returning zeros | extractor 8 |
+| "An unmapped structure raises" attributed correctly to this project's wrapper, not to OpenTPS | extractor 9 |
+| X4 extended: mm³-not-cc finding, `roi_volume_cc` | extractor 14 |
+| X10 added: `binarization_threshold = 0.5` | extractor 14 |
+| First-case measurement session item extended: whether X10 needs sensitivity-checking against real contours | extractor 15 |
+
+**Code.**
+
+| File | Contents |
+| --- | --- |
+| `extractor/records.py` | `DIRSettings` (with `content_hash`), `WorkingGrid`, `CropBounds`, `TargetMetrics`, `PlanComplexity`. No OpenTPS import |
+| `extractor/adapters.py` | `get_dvf`, `target_metrics`, `extract_roi_mask`, `union_bounding_box`, `crop_to_bounds`, `roi_volume_cc`, `extract_plan_complexity`. The one module X1 confines every OpenTPS call to |
+| `tests/test_adapters.py` | 29 tests: registration against a `syntheticDeformation` ground truth, `DIRSettings` hashing, target-metric unit conventions, ROI mask extraction and its two guard conditions, bounding box and crop arithmetic, plan complexity for both modalities |
+
+**Still to do**, in dependency order: TG-263 resolution wired to
+`extract_roi_mask`, which today takes a literal DICOM name and does no
+mapping; the export manifest reader and DICOM consistency check; the
+provenance table of extractor 13.1; DICOM ingest; the importing DVF backend,
+still a stub behind X2.
+
+**Open, added.** Whether `binarization_threshold = 0.5` needs sensitivity
+checking against real contours, joining the first-case measurement session.
+Whether the second test slice passes against the project's own `opentps
+3.0.0`, unconfirmed as of this entry.
+
+---
+
 # Extractor 5.1 and evaluator 6.1, API verification and benchmark
 
 Extractor 5.0 to **5.1**, evaluator 6.0 to **6.1**. Road and allocator unchanged.
