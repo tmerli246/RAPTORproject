@@ -1,6 +1,6 @@
 # Evaluation Module
 
-Version 6.1. Version history is in `CHANGELOG.md`. Project status and open items are in `STATE.md`.
+Version 6.2. Version history is in `CHANGELOG.md`. Project status and open items are in `STATE.md`.
 
 ## 1. Purpose and scope
 
@@ -304,6 +304,45 @@ The rows below are superseded, amended or added by the version 7 supervisory dec
 | E20 | XT-NA carries one fractionation schedule per patient, supplied as an eligibility flag in the patient record | Mirrors A32 of the allocator document | The flag is required input. Where it is hypofractionated, the numeraire for that patient is a hypofractionated arm and every ΔNTCP they carry is referred to it |
 
 E13 is unaffected: A17, which it follows, is retained and is part of the argument for E19.
+
+## 11. Implementation strategy
+
+New at version 6.2. Sections 4 to 7 specify the composition machinery; nothing implementing them exists yet, confirmed against STATE.md's own account of what is built. This section is the design-before-code step for it, on the same footing as extractor 3 was for that module: written and reviewed before the code that follows it, not after.
+
+**Appended rather than inserted.** Extractor 3 sits early in that document because a dedicated renumbering round put it there. No such round has been done here, and doing one now would cost more than it returns: STATE.md and other documents already point at "evaluator 10, 10.1, 10.2" for the assumptions register, and those pointers stay valid only if existing numbers are not moved. This section is therefore 11, not slotted in earlier, following the same numbering-preservation rule CHANGELOG.md states for every document.
+
+### 11.1 Module and scope
+
+`evaluator/compose.py`. Six functions, each the array operation one row of Section 4 or 7.1 names, and nothing beyond them: no NTCP evaluation. `evaluator/ntcp.py` and `evaluator/registry.py` are recorded as already implemented in STATE.md; this round has not read their source and does not modify them. The boundary is deliberate and is the one Section 7.1 already draws: this module's output is a DVH, the cache boundary, and what happens to a DVH after that is the existing NTCP machinery's concern, not a new one invented here to guess at an interface not yet seen.
+
+    compute_bed(dose_per_fraction, n_fx, alpha_beta) -> BED array
+    warp_bed(bed_field, dvf) -> BED array, on the fixed image's grid
+    sum_bed(bed_fields: list) -> total BED array
+    bed_to_eqd2(bed_total, alpha_beta) -> EQD2 array
+    reduce_to_dvh(eqd2_field, roi_mask, *, max_dvh=None) -> DVH
+    geud_from_dvh(dvh, a) -> float
+
+**A confirmed compatibility, not an assumed one.** Section 4.1 defines `d_b(x) = D_b(x)/n_b`. Extractor design 5 stores physical dose **per fraction**. If `D_b(x)` is the block's total physical dose over its `n_b` fractions, then `D_b(x)/n_b` is exactly the per-fraction quantity the extractor already produces, and `compute_bed` takes the extractor's stored dose directly, with no conversion at the boundary between the two modules. This is checked against the formula's own definition, not assumed because it happened to be convenient.
+
+**`warp_bed` is a thin composition over the extractor's registration**, not a new deformation implementation. It calls `extractor.adapters.get_dvf` for the field and `Deformation3D.deformImage` to apply it, reusing the fixed = pCT convention of extractor 6.2 and X3 exactly: a block's BED field is `moving`, the planning CT is `fixed`. No new registration code exists or is needed here.
+
+### 11.2 What is deferred and stated as such
+
+**Caching**, Section 7.1's table, is not implemented this round. `compute_bed`, `sum_bed` and `bed_to_eqd2` are pure functions of hashable inputs by construction, so a content-hash-keyed cache in the style of `DIRSettings.content_hash()` can wrap them later without changing their signatures; deferring the cache is a sequencing choice, not a design gap. `warp_bed` is the expensive stage and is exactly the one the extractor's own DVF cache, keyed by (moving, fixed, settings hash), already covers, so caching at that layer is largely inherited rather than new.
+
+**The Section 7.2 declared approximation**, that a gEUD from a binned DVH differs from a voxel-wise one by an amount controlled by bin width, is stated in the design and is not measured in this round: it requires a real case, per that section's own text, and does not block writing or testing `geud_from_dvh` against synthetic and hand-computed cases.
+
+**The Section 4.4 sensitivity measurement**, the alternative ordering computed once on a real case, is unaffected by this round for the same reason: no real case exists yet to compute it on.
+
+### 11.3 What is testable now, and what is not
+
+Testable now, and where the tests in Section 11.4 exercise it: `compute_bed` and `bed_to_eqd2` against hand-computable values; `sum_bed` against a synthetic multi-block case; `reduce_to_dvh`'s `maxDVH` handling against the exact hypofractionated numbers Section 7.2 already states, 5 × 8 Gy at α/β = 2 giving 100 Gy EQD2 and 5 × 10 Gy at α/β = 3 giving 130 Gy, reproduced as fixtures rather than paraphrased; `geud_from_dvh` against a uniform-dose case, where gEUD equals the dose regardless of the volume parameter, and against a two-value case computable by hand. `warp_bed` reduces to the extractor's own registration test, extractor 3.3, since it adds no new deformation logic.
+
+Not testable now: whether the composed EQD2 field is correct on real anatomy, which needs real dose and real deformation fields rather than synthetic ones; and the Section 4.4 and 7.2 measurements stated above as deferred.
+
+### 11.4 The Section 4.2 illustration as a golden test
+
+Section 4.2 states an exact worked example: α/β = 3 Gy, one fraction, two adjacent voxels at 1 Gy and 5 Gy, a target voxel midway between them, deform-then-convert giving 3.60 Gy and convert-then-deform giving 5.40 Gy. This is reproduced verbatim as a test fixture rather than re-derived, both because the numbers are already checked once in the design document and because a test that silently drifted from the illustration it claims to verify would be worse than no test: the two must either agree or the disagreement must be resolved explicitly, not quietly.
 
 ## Appendix F. Fractionation
 
