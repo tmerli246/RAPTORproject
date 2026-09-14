@@ -23,6 +23,80 @@ No other document has been renumbered and the rule stands for the other three.
 
 ---
 
+# Evaluator 6.3, the composition machinery implemented
+
+Evaluator 6.2 to **6.3**. Extractor, road and allocator unchanged. No
+supervisory input. `evaluator/compose.py`, the six functions Section 11.1
+specified: `compute_bed`, `warp_bed`, `sum_bed`, `bed_to_eqd2`,
+`reduce_to_dvh`, `geud_from_dvh`. 18 tests in `tests/test_compose.py`,
+passing against both the public OpenTPS release and the project's own
+checkout from the first run, using the working environment established for
+the extractor's own dual-environment testing.
+
+**A discrepancy found while writing tests, not while reading the design
+document passively.** The plan, stated in the 6.2 round, was to reproduce
+Section 4.2's worked example verbatim as a golden test. Recomputing it to
+build that fixture found the second row does not check out: EQD2 of a 5 Gy,
+one-fraction voxel at α/β = 3 is 8.00 Gy by the direct formula,
+D·(d+α/β)/(2+α/β), and 8.00 Gy again via BED then conversion, not the
+10.00 Gy the document states, which would make the row's result 4.40 Gy
+rather than 5.40 Gy. The first row, 3.60 Gy, checks out exactly by the same
+two routes. Flagged in place at evaluator 4.2 rather than silently corrected
+there or silently trusted here: whether this is a transcription error in
+the document or a different intended construction of the example is for
+Tommaso to confirm. The test suite does not depend on the answer, since it
+uses independently derived and checked numbers instead, detailed below.
+
+**What the tests are built on instead.** An algebraic identity, checked
+before being coded: at exactly 2 Gy per fraction, EQD2 equals total physical
+dose for any α/β, since the α/β-dependent terms in BED and in the EQD2
+denominator cancel. The Section 7.2 hypofractionated numbers, 5 × 8 Gy at
+α/β = 2 giving 100 Gy EQD2 and 5 × 10 Gy at α/β = 3 giving 130 Gy,
+independently recomputed and matched exactly, unlike the 4.2 illustration.
+A hand-computed two-value gEUD case. A uniform-dose identity, gEUD equals
+the dose at any volume parameter. `warp_bed` tested as the pure delegation
+to `Deformation3D.deformImage` it is designed to be, against a synthetic
+zero-displacement field, rather than re-testing deformation itself, which
+belongs to extractor 3.3.
+
+**One implementation finding, not a design choice: `DVH.histogram` is
+cumulative.** Confirmed by reading `computeDVH`'s source directly on 14
+September 2026, the same convention `computeVx` and `computeDx` already
+rely on, "volume receiving at least this dose", in percent. `geud_from_dvh`
+needs differential per-bin volume fractions for the power-mean sum, and
+recovers them as a first difference of the cumulative array. Not a new
+assumption, since it is arithmetic following from a confirmed source read
+rather than a choice with an alternative.
+
+**`reduce_to_dvh` carries the Section 7.2 `maxDVH` fix forward**, `max_dvh`
+computed from the field's own maximum with a 5% margin when not given
+explicitly, never left at `DVH.computeDVH`'s 100 Gy absolute default: the
+same defect that motivated the extractor's own `target_metrics` fix,
+applied here to accumulated EQD2 rather than physical per-fraction dose,
+which is precisely the field Section 7.2 identifies as at risk.
+
+| Change | Where |
+| --- | --- |
+| 4.2 flagged in place: the second row's numbers do not check out, recomputed by two routes, left unresolved pending Tommaso's confirmation | evaluator 4.2 |
+| 11.1 corrected: `warp_bed` does not call `get_dvf`, and the BED field is not the registration's `moving` parameter; both were imprecise in the 6.2 draft | evaluator 11.1 |
+| 11.4 rewritten: the 4.2 illustration is not the golden test, and why | evaluator 11.4 |
+| 11.5 added: implementation and test summary | evaluator 11.5 |
+
+**Code and tests.**
+
+| File | Contents |
+| --- | --- |
+| `evaluator/compose.py` | `compute_bed`, `warp_bed`, `sum_bed`, `bed_to_eqd2`, `reduce_to_dvh`, `geud_from_dvh` |
+| `tests/test_compose.py` | 18 tests, none depending on the disputed 4.2 illustration |
+
+**Open, added.** Whether evaluator 4.2's second row is a document error or
+a misread construction; for Tommaso. Everything else this round closes
+rather than opens: caching, NTCP integration and the two real-case
+measurements of Section 11.2 remain deferred exactly as the 6.2 round
+stated, not newly so.
+
+---
+
 # Evaluator 6.2, implementation strategy for the composition machinery
 
 Evaluator 6.1 to **6.2**. Extractor, road and allocator unchanged. No

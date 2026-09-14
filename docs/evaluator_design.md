@@ -1,6 +1,6 @@
 # Evaluation Module
 
-Version 6.2. Version history is in `CHANGELOG.md`. Project status and open items are in `STATE.md`.
+Version 6.3. Version history is in `CHANGELOG.md`. Project status and open items are in `STATE.md`.
 
 ## 1. Purpose and scope
 
@@ -103,6 +103,8 @@ Illustration with α/β of 3 Gy, one fraction, two adjacent voxels at 1 Gy and 5
 | Convert, then deform | 0.80 Gy and 10.00 Gy | 5.40 Gy |
 
 The example is extreme by construction and is included to make the mechanism visible, not to quantify the expected effect. What makes it relevant here rather than generic is the volume parameter. For a serial-like organ with a small volume parameter, such as rectum at n = 0.09, the generalised equivalent uniform dose approaches maximum dose and therefore draws its weight from the high-gradient region, which is exactly where the error lives. For an endpoint driven by mean dose the error would average out.
+
+**Flagged, not corrected, 14 September 2026.** The "convert, then deform" row does not check out against the stated α/β = 3: EQD2 of the 5 Gy voxel at one fraction and α/β = 3 is D·(d+α/β)/(2+α/β) = 5·8/5 = 8.00 Gy, not the 10.00 Gy given, by two independent routes, the direct EQD2 formula and BED then conversion. That makes the row's result 4.40 Gy rather than 5.40 Gy. The first row checks out exactly. Left as written pending Tommaso's confirmation of what the example intended, rather than silently amended: `evaluator/compose.py`'s tests deliberately do not reproduce this row, and use independently-derived numbers instead. See `CHANGELOG.md`, evaluator 6.3.
 
 ### 4.3 What the ordering costs
 
@@ -324,7 +326,7 @@ New at version 6.2. Sections 4 to 7 specify the composition machinery; nothing i
 
 **A confirmed compatibility, not an assumed one.** Section 4.1 defines `d_b(x) = D_b(x)/n_b`. Extractor design 5 stores physical dose **per fraction**. If `D_b(x)` is the block's total physical dose over its `n_b` fractions, then `D_b(x)/n_b` is exactly the per-fraction quantity the extractor already produces, and `compute_bed` takes the extractor's stored dose directly, with no conversion at the boundary between the two modules. This is checked against the formula's own definition, not assumed because it happened to be convenient.
 
-**`warp_bed` is a thin composition over the extractor's registration**, not a new deformation implementation. It calls `extractor.adapters.get_dvf` for the field and `Deformation3D.deformImage` to apply it, reusing the fixed = pCT convention of extractor 6.2 and X3 exactly: a block's BED field is `moving`, the planning CT is `fixed`. No new registration code exists or is needed here.
+**`warp_bed` takes an already-computed field, and does not call `get_dvf` itself.** Registration, `extractor.adapters.get_dvf`, is performed once per image pair and cached (extractor design 6); applying a cached field to an array is cheap and repeated once per (block, scheme, α/β) combination (evaluator design 4.3, "four applications... not four registrations"). Keeping the two calls apart, rather than having `warp_bed` reach for `get_dvf` on every call, is what makes that sentence true of the code rather than only of the design. The registration's `moving` and `fixed` are the block's repeat image and the planning CT respectively, per extractor 6.2 and X3; the BED field is a separate array living on that same repeat-image grid, and it is what gets passed to the already-obtained field's `deformImage`, not a parameter of the registration itself.
 
 ### 11.2 What is deferred and stated as such
 
@@ -336,13 +338,25 @@ New at version 6.2. Sections 4 to 7 specify the composition machinery; nothing i
 
 ### 11.3 What is testable now, and what is not
 
-Testable now, and where the tests in Section 11.4 exercise it: `compute_bed` and `bed_to_eqd2` against hand-computable values; `sum_bed` against a synthetic multi-block case; `reduce_to_dvh`'s `maxDVH` handling against the exact hypofractionated numbers Section 7.2 already states, 5 × 8 Gy at α/β = 2 giving 100 Gy EQD2 and 5 × 10 Gy at α/β = 3 giving 130 Gy, reproduced as fixtures rather than paraphrased; `geud_from_dvh` against a uniform-dose case, where gEUD equals the dose regardless of the volume parameter, and against a two-value case computable by hand. `warp_bed` reduces to the extractor's own registration test, extractor 3.3, since it adds no new deformation logic.
+Testable now, and where Sections 11.4 and 11.5 record what was exercised: `compute_bed` and `bed_to_eqd2` against hand-computable values; `sum_bed` against a synthetic multi-block case; `reduce_to_dvh`'s `maxDVH` handling against the exact hypofractionated numbers Section 7.2 already states, 5 × 8 Gy at α/β = 2 giving 100 Gy EQD2 and 5 × 10 Gy at α/β = 3 giving 130 Gy, reproduced as fixtures rather than paraphrased; `geud_from_dvh` against a uniform-dose case, where gEUD equals the dose regardless of the volume parameter, and against a two-value case computable by hand. `warp_bed` reduces to the extractor's own registration test, extractor 3.3, since it adds no new deformation logic.
 
 Not testable now: whether the composed EQD2 field is correct on real anatomy, which needs real dose and real deformation fields rather than synthetic ones; and the Section 4.4 and 7.2 measurements stated above as deferred.
 
-### 11.4 The Section 4.2 illustration as a golden test
+### 11.4 The Section 4.2 illustration, and why it is not the golden test after all
 
-Section 4.2 states an exact worked example: α/β = 3 Gy, one fraction, two adjacent voxels at 1 Gy and 5 Gy, a target voxel midway between them, deform-then-convert giving 3.60 Gy and convert-then-deform giving 5.40 Gy. This is reproduced verbatim as a test fixture rather than re-derived, both because the numbers are already checked once in the design document and because a test that silently drifted from the illustration it claims to verify would be worse than no test: the two must either agree or the disagreement must be resolved explicitly, not quietly.
+Section 4.2 states a worked example: α/β = 3 Gy, one fraction, two adjacent voxels at 1 Gy and 5 Gy, a target voxel midway. The plan was to reproduce it verbatim as a test fixture. Recomputing it while writing the test found that the second row does not check out, flagged in place at 4.2 rather than silently amended there or here. The test suite therefore does not use this illustration: it uses numbers derived and checked independently of the design document's prose, named in 11.5.
+
+### 11.5 Implemented at version 6.3, tested on both environments
+
+`evaluator/compose.py`: `compute_bed`, `warp_bed`, `sum_bed`, `bed_to_eqd2`, `reduce_to_dvh`, `geud_from_dvh`, matching Section 11.1's signatures. 18 tests in `tests/test_compose.py`, passing against both the public OpenTPS release and the project's own checkout, 14 September 2026.
+
+**One thing found writing `geud_from_dvh` that neither this document nor extractor's V95% work had needed before.** `DVH.histogram` is **cumulative**, confirmed by reading `computeDVH`'s source directly: volume in percent, "volume receiving at least this dose", the same convention `computeVx` and `computeDx` already rely on. The gEUD sum needs *differential* per-bin volume fractions. Recovered as a first difference of the cumulative array, `v_i = volume[i] - volume[i+1]`, the last bin taking its own cumulative value in place of a notional `volume[N] = 0` beyond the axis. Not registered as a new assumption, since it is arithmetic derived from a confirmed source read rather than a choice with an alternative.
+
+**Verified by construction rather than only by test.** `bed_to_eqd2` reproduces the algebraic identity that at exactly 2 Gy per fraction, EQD2 equals total physical dose for any α/β, since the α/β-dependent terms in BED and in the EQD2 denominator cancel; checked algebraically before being written as a test rather than the reverse. The Section 7.2 hypofractionated numbers, 5 × 8 Gy at α/β = 2 giving 100 Gy and 5 × 10 Gy at α/β = 3 giving 130 Gy, were independently recomputed before use as fixtures and matched exactly, unlike the 4.2 illustration.
+
+**`warp_bed` is tested as the thin delegation it is stated to be**, against a synthetic zero-displacement field, checking it returns exactly what `Deformation3D.deformImage` returns: the deformation logic itself is extractor 3.3's registration test, not re-tested here.
+
+**Not yet done.** Caching, per 11.2. Integration with `evaluator/ntcp.py` and `evaluator/registry.py`, not read this round. The Section 4.4 sensitivity measurement and the Section 7.2 declared gEUD-binning approximation, both requiring a real case.
 
 ## Appendix F. Fractionation
 

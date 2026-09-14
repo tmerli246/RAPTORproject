@@ -3,17 +3,19 @@
 **Last updated:** 2026-09-14, at tag `design-v6.3`. No new tag: nothing since
 `design-v6.3` has changed verified behaviour enough to cut one, extractor
 code included. `extractor_design.md` is at **5.4**, `evaluator_design.md` at
-**6.2**. Road and allocator unchanged at 7.0 and 7.0.
+**6.3**. Road and allocator unchanged at 7.0 and 7.0.
 
 The paragraph below describes the round that produced extractor 5.2 and
-evaluator 6.1; three more rounds followed it and are not re-narrated here,
+evaluator 6.1; four more rounds followed it and are not re-narrated here,
 only pointed to: extractor 5.3 corrected the ROI-masking code against the
 project's own OpenTPS checkout after it first met the public release only;
 extractor 5.4 added TG-263 resolution and the export manifest, tested
-against both environments from the start; evaluator 6.2 adds the
-implementation strategy for the composition machinery, design only, no code
-yet. Detail for each is in `CHANGELOG.md`; current status for each is in
-Sections 6 and 7 below, not only in this header.
+against both environments from the start; evaluator 6.2 added the
+implementation strategy for the composition machinery, design only; evaluator
+6.3 implements it, `evaluator/compose.py`, tested on both environments, and
+flags an unresolved numerical discrepancy in the 4.2 worked example rather
+than silently correcting it. Detail for each is in `CHANGELOG.md`; current
+status for each is in Sections 6 and 7 below, not only in this header.
 
 **The third round is a code change, the first this file has to record for the
 extractor.** `src/tps5d/extractor/records.py` and `adapters.py` now exist:
@@ -107,7 +109,7 @@ All six live in `docs/` at the repository root, alongside `README.md` and
 | --- | --- | --- |
 | `ROAD_TO_PAPER_1.md` | 7.0 | Scientific question, hypothesis, arm set, uncertainty budget, plan budget, endpoint policy, what the paper claims. Open problems register (4.8). Appendix F, single copy |
 | `allocator_design.md` | 7.0 | Optimization problem, algorithm, shadow prices, step-ratio threshold, policy comparison. Assumptions register (11, amended at 11.1 and 11.2) and open decisions (12) |
-| `evaluator_design.md` | 6.2 | Dose composition, accumulation ordering, EQD2 conversion, NTCP evaluation, admissibility screens, strategy construction. Assumptions register (10, amended at 10.1 and 10.2). Implementation strategy for the composition machinery (11), appended rather than inserted, so existing pointers into this document are unaffected |
+| `evaluator_design.md` | 6.3 | Dose composition, accumulation ordering, EQD2 conversion, NTCP evaluation, admissibility screens, strategy construction. Assumptions register (10, amended at 10.1 and 10.2). Implementation strategy for the composition machinery (11), appended rather than inserted, so existing pointers into this document are unaffected. Code implemented and tested on both environments (11.5); a numerical discrepancy in the 4.2 illustration flagged, unresolved |
 | `extractor_design.md` | 5.4 | Ingest, plan identity and the export manifest, registration, storage, target metrics, plan complexity, ROI naming, provenance (13). Assumptions register (14), prefix X |
 | `CHANGELOG.md` | - | Version history for all four. Kept in the repository, not in the project knowledge |
 
@@ -224,7 +226,7 @@ Package `tps5d` in the RAPTORproject repository, `src/tps5d/` with `core`,
 `allocator`, `evaluator`, `generator`, `extractor`. Conda environment `OpenTPS`, Windows,
 PowerShell. Implemented: `schema.py`, `solve.py`, `dominance.py`, `policies.py`,
 `report.py`, `figures.py`, `synth.py`, `evaluator/ntcp.py`,
-`evaluator/registry.py`. Exact solver `scipy.optimize.milp` (HiGHS), `solve_dp`
+`evaluator/registry.py`, `evaluator/compose.py`. Exact solver `scipy.optimize.milp` (HiGHS), `solve_dp`
 retained as an independent cross-check at C_XT = 0. `scripts/step_ratio.py` is
 deleted, as recorded previously.
 
@@ -451,21 +453,30 @@ data anyway. Decided by Tommaso, not defaulted to "extractor first" by
 momentum, which is what the open question in an earlier version of this
 file had flagged as a risk.
 
-**Evaluator composition machinery, design phase done, code not yet
-written.** `evaluator_design.md` moves to **6.2**: a new Section 11,
-appended rather than inserted so the existing pointers to Sections 10, 10.1
-and 10.2 stay valid, specifies six functions for a new `evaluator/compose.py`,
-`compute_bed`, `warp_bed`, `sum_bed`, `bed_to_eqd2`, `reduce_to_dvh`,
-`geud_from_dvh`, matching Sections 4 and 7.1 of that document exactly rather
-than reinterpreting them. Confirmed rather than assumed: Section 4.1's
-`d_b(x) = D_b(x)/n_b` is exactly the per-fraction dose the extractor already
-stores, so no conversion is needed at the boundary between the two modules.
-Deliberately out of scope: NTCP evaluation itself, `evaluator/ntcp.py` and
-`evaluator/registry.py`, recorded as already implemented above and not read
-or modified this round, since `compose.py`'s output is a DVH, the cache
-boundary Section 7.1 already draws, and what consumes a DVH after that is
-existing machinery, not something to guess an interface for. Code against
-this design is the next step, not yet started as of this entry.
+**Evaluator composition machinery, designed and implemented, tested on both
+environments.** `evaluator_design.md` is at **6.3**. Section 11 specifies six
+functions for `evaluator/compose.py`, `compute_bed`, `warp_bed`, `sum_bed`,
+`bed_to_eqd2`, `reduce_to_dvh`, `geud_from_dvh`, matching Sections 4 and 7.1
+exactly rather than reinterpreting them; all six are now written, 18 tests
+in `tests/test_compose.py`, passing against both the public OpenTPS release
+and the project's own checkout, 14 September 2026. Confirmed rather than
+assumed: Section 4.1's `d_b(x) = D_b(x)/n_b` is exactly the per-fraction
+dose the extractor already stores, so no conversion is needed at the
+boundary between the two modules. Deliberately out of scope: NTCP evaluation
+itself, `evaluator/ntcp.py` and `evaluator/registry.py`, recorded as already
+implemented above and not read or modified this round, since `compose.py`'s
+output is a DVH, the cache boundary Section 7.1 already draws.
+
+**A numerical discrepancy found while writing the tests, flagged rather than
+resolved.** Section 4.2's worked example gives EQD2 of a 5 Gy, one-fraction
+voxel at α/β = 3 as 10.00 Gy; independently recomputed by two routes on 14
+September 2026, direct EQD2 formula and BED then conversion, the correct
+value is 8.00 Gy, changing the row's result from 5.40 to 4.40 Gy. The first
+row of that table checks out exactly. Flagged in place at evaluator 4.2 and
+not amended there: whether this is a document error or a misunderstanding of
+what the example intended is for Tommaso to confirm. `test_compose.py`
+deliberately does not use this illustration and is built on independently
+derived numbers instead, detailed in evaluator 11.4 and 11.5.
 
 **Still to do in the extractor**, once the evaluator work above is done: the
 provenance table of Section 13.1; DICOM ingest; and the importing DVF
