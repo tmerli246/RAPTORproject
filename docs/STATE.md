@@ -1,25 +1,26 @@
 # Project state
 
-**Last updated:** 2026-09-14, at tag `design-v6.3`. No new tag: nothing since
+**Last updated:** 2026-09-15, at tag `design-v6.3`. No new tag: nothing since
 `design-v6.3` has changed verified behaviour enough to cut one, extractor
-code included. `extractor_design.md` is at **5.4**, `evaluator_design.md` at
+code included. `extractor_design.md` is at **5.6**, `evaluator_design.md` at
 **6.4**. Road and allocator unchanged at 7.0 and 7.0.
 
-The paragraph below describes the round that produced extractor 5.2 and
-evaluator 6.1; five more rounds followed it and are not re-narrated here,
-only pointed to: extractor 5.3 corrected the ROI-masking code against the
-project's own OpenTPS checkout after it first met the public release only;
-extractor 5.4 added TG-263 resolution and the export manifest, tested
-against both environments from the start; evaluator 6.2 added the
-implementation strategy for the composition machinery, design only; evaluator
-6.3 implemented it, `evaluator/compose.py`, tested on both environments, and
-flagged an unresolved numerical discrepancy in the 4.2 worked example rather
-than silently correcting it; evaluator 6.4, after Tommaso supplied
-`evaluator/ntcp.py` and `evaluator/registry.py`, reconciled `compose.py`
-with the arithmetic they already implement rather than leaving two
-independent copies, and resolved the 4.2 discrepancy with an independent
-third confirmation. Detail for each is in `CHANGELOG.md`; current
-status for each is in Sections 6 and 7 below, not only in this header.
+Seven rounds since extractor 5.2 and evaluator 6.1 are not re-narrated here in
+full; detail for each is in `CHANGELOG.md`, current status in Sections 6 and
+7 below. In order: extractor 5.3 corrected the ROI-masking code against the
+project's own OpenTPS checkout, found to differ from the public release it
+had first been verified against; extractor 5.4 added TG-263 resolution and
+the export manifest; evaluator 6.2 specified the composition machinery's
+implementation strategy, design only; evaluator 6.3 implemented it,
+`evaluator/compose.py`; evaluator 6.4 reconciled that code with
+`evaluator/ntcp.py` and `evaluator/registry.py` once Tommaso supplied them,
+removing duplicated arithmetic, and resolved a numerical discrepancy in the
+4.2 worked example the 6.3 round had only flagged; extractor 5.5 added
+DICOM ingest, `extractor/ingest.py`, finding that three of OpenTPS's four
+DICOM readers return `None` rather than raise on unrecognised input, a
+systemic pattern rather than a single function's quirk; extractor 5.6 added
+the provenance table, `extractor/provenance.py`, closing the last piece of
+infrastructure this document had specified but not yet built.
 
 **The third round is a code change, the first this file has to record for the
 extractor.** `src/tps5d/extractor/records.py` and `adapters.py` now exist:
@@ -114,7 +115,7 @@ All six live in `docs/` at the repository root, alongside `README.md` and
 | `ROAD_TO_PAPER_1.md` | 7.0 | Scientific question, hypothesis, arm set, uncertainty budget, plan budget, endpoint policy, what the paper claims. Open problems register (4.8). Appendix F, single copy |
 | `allocator_design.md` | 7.0 | Optimization problem, algorithm, shadow prices, step-ratio threshold, policy comparison. Assumptions register (11, amended at 11.1 and 11.2) and open decisions (12) |
 | `evaluator_design.md` | 6.4 | Dose composition, accumulation ordering, EQD2 conversion, NTCP evaluation, admissibility screens, strategy construction. Assumptions register (10, amended at 10.1 and 10.2). Implementation strategy for the composition machinery (11), appended rather than inserted, so existing pointers into this document are unaffected. `compose.py` implemented, tested on both environments, and reconciled with `ntcp.py`/`registry.py` after Tommaso supplied them; the 4.2 discrepancy corrected |
-| `extractor_design.md` | 5.4 | Ingest, plan identity and the export manifest, registration, storage, target metrics, plan complexity, ROI naming, provenance (13). Assumptions register (14), prefix X |
+| `extractor_design.md` | 5.6 | Ingest (16, implemented), plan identity and the export manifest, registration, storage, target metrics, plan complexity, ROI naming, provenance (13, implemented). Assumptions register (14), prefix X |
 | `CHANGELOG.md` | - | Version history for all four. Kept in the repository, not in the project knowledge |
 
 The evaluator is one version behind the allocator by convention on the major
@@ -487,10 +488,44 @@ throughout. A plausible transcription, not confirmed as one; Tommaso's own read 
 it is probably a slip rather than a conceptual disagreement, stated as a
 supposition rather than a certainty.
 
-**Still to do in the extractor**, once the evaluator work above is done: the
-provenance table of Section 13.1; DICOM ingest; and the importing DVF
+**DICOM ingest, implemented at extractor 5.5.** `extractor/ingest.py`:
+`ingest_ct`, `ingest_dose`, `ingest_struct`, `ingest_plan`, wrapping
+`io.dicomIO`'s four readers. 10 tests in `tests/test_ingest.py`, passing
+against both the public OpenTPS release and the project's own checkout, 15
+September 2026. Systemic finding, not a one-off: `readDicomDose`,
+`readDicomStruct` and `readDicomPlan` all return `None`, not an exception,
+on input they do not recognise, confirmed by reading `dicomIO` directly and
+reproduced with a constructed 8-bit dose file. `readDicomCT` has no such
+branch but a different one: a single-slice input gives `NaN` spacing rather
+than an error. All four checked and raised on explicitly in the wrapper.
+Tested against genuine synthetic files for CT and dose; struct and plan
+tested at the wrapper-logic level only via `monkeypatch`, a stated scope
+decision given the construction cost of a minimal valid RTSTRUCT or RTPLAN,
+not a silently smaller test than claimed. Not built this round: the
+function that would discover a manifest row's plan and structure set from
+its dose file, closing the loop into `manifest.check_row_consistency`,
+since the manifest's single `path` column per row does not by itself say
+whether discovery follows DICOM references or needs its own path columns,
+and neither a real export nor a decision independent of one is available
+yet.
+
+**Provenance table, implemented at extractor 5.6.** `extractor/provenance.py`:
+`ProvenanceRecord` and `ProvenanceTable`, a keyed, queryable collection
+matching Section 13.1's form exactly. `add` raises on a key already
+present rather than silently overwriting, since a repeat is most likely a
+logic error, two call sites tagging the same quantity unaware of each
+other; `update` is the separate, explicit spelling for a deliberate
+re-extraction. `table.query(kind='assumed')` is Section 13's enumerability
+requirement made concrete: the complete list of assumed parameters by
+query, not maintained by hand. CSV persistence in the same style as the
+ROI mapping file. 20 tests in `tests/test_provenance.py`. What this module
+does not do: decide which quantities are primitives worth tagging, a
+judgement Section 13.2 leaves to the caller, not to the storage mechanism.
+
+**Still to do in the extractor**: the importing DVF
 backend, which remains a stub pending the RayStation export conventions of
-X7 and X9.
+X7 and X9; the manifest-discovery function above; and synthetic-file tests
+for `ingest_struct`/`ingest_plan` matching CT and dose's.
 
 Not testable now, and stated as a limit of validation rather than of
 implementation: whether the parser survives a real RayStation export (X9), DIR

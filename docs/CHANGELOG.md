@@ -23,6 +23,124 @@ No other document has been renumbered and the rule stands for the other three.
 
 ---
 
+# Extractor 5.6, the provenance table
+
+Extractor 5.5 to **5.6**. Evaluator, road and allocator unchanged. No
+supervisory input. New module, `extractor/provenance.py`: `ProvenanceRecord`
+and `ProvenanceTable`, matching extractor design 13.1's form. 20 tests in
+`tests/test_provenance.py`. Closes the last piece of infrastructure Section
+13 had specified since before this document existed at version 5.0 but had
+not yet built.
+
+**The requirement is enumerability, and the table is built around it
+directly.** `table.query(kind='assumed')` returns the complete, current
+list of assumed parameters, which is the concrete form of Section 13's
+opening statement: a tag scattered through every record satisfies the
+wording and not the requirement, since enumerating would mean traversing
+the whole store. `ProvenanceRecord` carries the four fields Section 13.1
+already specified, `key`, `kind`, `source`, `content_hash`; nothing new
+was designed this round, the specification was already complete and this
+round writes it.
+
+**`add` raises on a duplicate key rather than overwriting.** Two
+provenance records for the same primitive most likely means the same
+quantity was tagged from two call sites unaware of each other, a logic
+error worth surfacing rather than silently allowing. `update` is the
+separate, explicit method for the legitimate case, a deliberate
+re-extraction of the same patient. `read_csv` applies the same rule on
+load, raising on a duplicate key exactly as building the table with
+repeated `add` calls would, rather than silently keeping the last row.
+
+**What this module does not do, stated rather than left implicit.**
+Deciding which quantities are primitives worth tagging at all, Section
+13.2's list, is a judgement about the pipeline that belongs to whoever
+calls `add`. The module has no way to know from a key string alone
+whether it names a primitive or a derived quantity, so it does not and
+cannot enforce that distinction; it stores and enumerates what it is
+given.
+
+| Change | Where |
+| --- | --- |
+| Implementation note added: `ProvenanceRecord`/`ProvenanceTable`, the enumerability requirement made concrete, `add` vs `update` | extractor 13.1 |
+| Stale forward reference fixed: the TG-263 section pointed to "the provenance table... once that exists"; it now exists | extractor 9 |
+
+**Code and tests.**
+
+| File | Contents |
+| --- | --- |
+| `extractor/provenance.py` | `ProvenanceRecord`, `ProvenanceTable` (`add`, `update`, `get`, `query`, `write_csv`, `read_csv`) |
+| `tests/test_provenance.py` | 20 tests: record validation, add/get/duplicate-raises/update-overwrites, query with and without a kind filter, CSV round trip including the duplicate-key case |
+
+**Open, added.** None. This round closes an item rather than opening one.
+
+---
+
+# Extractor 5.5, DICOM ingest
+
+Extractor 5.4 to **5.5**. Evaluator, road and allocator unchanged. No
+supervisory input. New module, `extractor/ingest.py`: `ingest_ct`,
+`ingest_dose`, `ingest_struct`, `ingest_plan`, wrapping `io.dicomIO`'s four
+readers. 10 tests in `tests/test_ingest.py`, passing against both the
+public OpenTPS release and the project's own checkout, 15 September 2026.
+
+**A systemic finding, not a single function's quirk.** `readDicomDose`,
+`readDicomStruct` and `readDicomPlan` all return `None`, not an exception,
+on input they do not recognise, confirmed by reading `dicomIO` directly
+rather than found by chance in one function. `readDicomDose` on an
+unsupported `BitsStored`/`PixelRepresentation` combination, reproduced with
+a constructed 8-bit dose file rather than only read. `readDicomStruct` on a
+file with no `SeriesInstanceUID`. `readDicomPlan` on five separate
+branches, unsupported radiation type, a proton scan mode other than
+`'MODULATED'`, an unsupported ion scan mode, or an unrecognised
+`SOPClassUID`, and which of the five fired is not recoverable from the
+return value alone. `readDicomCT` has no such branch, confirmed by the same
+read, and a different failure mode instead: it derives z-spacing as
+`(last - first) / (n - 1)`, which on a single-slice input is `0/0`, `NaN`
+rather than an error, silently corrupting every downstream geometry
+calculation that touches it. `ingest.py` checks every call and raises
+immediately, naming the file and, where identifiable, the reason.
+
+**Tested against genuine synthetic files for CT and dose, wrapper logic
+only for struct and plan.** Minimal DICOM datasets built directly with
+`pydicom`, written to a temp directory, read back through the real
+`readDicomCT`/`readDicomDose`, not mocked. Struct and plan's `None`-check
+logic, identical in shape, is tested via `monkeypatch` instead: a minimal
+but genuinely valid RTSTRUCT or RTPLAN, with nested ROI or beam sequences,
+is materially more involved to construct than CT or dose. Stated as a
+scope decision in both the design document and here, not a silently
+smaller test suite than claimed; listed in extractor 15 as open.
+
+**Not built this round.** A function discovering a manifest row's
+associated plan and structure set from its dose file, which would close
+`manifest.check_row_consistency`'s loop: that function today takes
+already-loaded `(dose, plan, struct)` triples and does not say how they
+are found. The manifest's single `path` column per row does not indicate
+whether it names the dose file alone, with plan and struct discovered via
+`dose.referencePlan` and `plan.referencedStructureSetSequence`, or a
+directory containing all three. Left open rather than guessed at: building
+it on an assumed convention would be the same risk X9 already tracks for
+RayStation's export conventions generally, applied to one more unverified
+detail.
+
+| Change | Where |
+| --- | --- |
+| DICOM ingest table row rewritten around the confirmed `None`-return pattern and `readDicomCT`'s own failure mode | extractor 3.1 |
+| New paragraph: the `None`-return pattern as a case of "fail loudly" alongside the defaults rule | extractor 3.4 |
+| New Section 16: ingest implementation, the systemic finding, what is and is not tested this round, what is not yet built | extractor 16 |
+| Two items added: synthetic-file tests for struct/plan; the manifest-discovery function | extractor 15 |
+
+**Code and tests.**
+
+| File | Contents |
+| --- | --- |
+| `extractor/ingest.py` | `ingest_ct`, `ingest_dose`, `ingest_struct`, `ingest_plan` |
+| `tests/test_ingest.py` | 10 tests: 4 against genuine synthetic DICOM (CT happy path, slice-order independence, dose happy path with plan reference, dose unsupported-bit-depth), 4 empty/single-file CT guards, 2 wrapper-logic tests each for struct and plan via `monkeypatch` |
+
+**Open, added.** The manifest-discovery function; synthetic-file tests for
+struct and plan. Both stated as deferred rather than silently skipped.
+
+---
+
 # Evaluator 6.4, reconciled with the existing NTCP code
 
 Evaluator 6.3 to **6.4**. Extractor, road and allocator unchanged. No
