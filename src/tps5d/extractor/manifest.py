@@ -1,11 +1,17 @@
 """The export manifest, its reader, and the DICOM consistency check
 (extractor design 4).
 
-No OpenTPS import at module scope: read_manifest touches only the file
-system, and check_row_consistency reads plain attributes off already-loaded
-OpenTPS objects (DoseImage, RTPlan, RTStruct) rather than calling into
-OpenTPS itself. Parsing DICOM files into those objects is ingest, not built
-yet, and this module does not anticipate its interface.
+`read_manifest`, `check_row_consistency` and `check_manifest` import
+nothing from OpenTPS: the first touches only the file system, the other
+two read plain attributes off already-loaded objects (DoseImage, RTPlan,
+RTStruct) rather than calling into OpenTPS themselves.
+
+`discover_and_load`, added once `extractor.ingest` existed, does not keep
+that property: it calls `ingest.ingest_dose`/`ingest_plan`/`ingest_struct`
+to actually load the files it discovers, since discovery is only useful
+if it returns loaded objects rather than paths. Stated here rather than
+left for a reader to notice the module docstring no longer quite matches
+one of its four functions.
 
 Column set and the design reasoning are extractor design 4: the manifest is
 the authority for arm, block, role and scheme, none of which are DICOM
@@ -15,7 +21,12 @@ tied to the image of block j.
 """
 
 import csv
+import os
 from dataclasses import dataclass
+
+import pydicom
+
+from . import ingest
 
 
 VALID_ARMS = ('XT-NA', 'XT-A', 'PT-NA', 'PT-A')
@@ -188,3 +199,97 @@ def check_manifest(rows, loaded: dict) -> None:
             f"{len(problems)} manifest row(s) failed consistency:\n" +
             "\n".join(f"  - {p}" for p in problems)
         )
+
+
+# ---------------------------------------------------------------------------
+# Discovery (extractor design 16's open item)
+# ---------------------------------------------------------------------------
+
+def _find_dicom_by_sop_uid(directory: str, target_sop_uid: str) -> str:
+    """Path of the file in `directory` whose SOPInstanceUID matches.
+
+    Reads only the header, `stop_before_pixels=True`, so scanning a
+    directory of dose or image files is cheap: pixel data is never
+    decoded just to check a UID. Files that are not valid DICOM at all
+    are skipped rather than failing the whole search, since a real export
+    directory is not guaranteed to contain only DICOM.
+
+    Raises on zero matches, and on more than one: a directory where two
+    files claim the same SOPInstanceUID is not a search problem to work
+    around silently, it is a data problem to surface.
+    """
+    matches = []
+    for fname in os.listdir(directory):
+        fpath = os.path.join(directory, fname)
+        if not os.path.isfile(fpath):
+            continue
+        try:
+            dcm = pydicom.dcmread(fpath, stop_before_pixels=True)
+        except Exception:
+            continue
+        if getattr(dcm, 'SOPInstanceUID', None) == target_sop_uid:
+            matches.append(fpath)
+
+    if not matches:
+        raise FileNotFoundError(
+            f"no DICOM file in {directory!r} has SOPInstanceUID "
+            f"{target_sop_uid!r}"
+        )
+    if len(matches) > 1:
+        raise ValueError(
+            f"{len(matches)} files in {directory!r} claim SOPInstanceUID "
+            f"{target_sop_uid!r}: {matches}"
+        )
+    return matches[0]
+
+
+def discover_and_load(row: ManifestRow, *, search_dir: str = None):
+    """The (dose, plan, struct) triple for one manifest row, plan and
+    struct discovered from the dose file's own DICOM references rather
+    than from extra manifest columns.
+
+    **The design decision this function encodes, not one extractor design
+    4 states on its own**: a manifest row's `path` names the dose file,
+    and every other file that row needs lives alongside it in the same
+    directory. Extractor design 4's schema is silent on which of "dose
+    file alone" or "a directory with all three" `path` means; this
+    function commits to the first, with discovery filling the gap, rather
+    than adding path columns the manifest schema does not have. This is a
+    decision this project controls, not a RayStation convention to wait
+    for: whoever writes the manifest, most likely a script per open
+    decision 26 of the allocator document, controls the directory layout
+    too.
+
+    `search_dir` defaults to the directory `row.path` is in; passed
+    explicitly for a layout where the three files are not siblings.
+
+    Discovery: `dose.referencePlan` (extractor design 4's confirmed
+    attribute chain, X8) is looked up by `_find_dicom_by_sop_uid` in
+    `search_dir`, then `plan.referencedStructureSetSequence[0]
+    .ReferencedSOPInstanceUID` the same way. Both raise clearly, via
+    `_find_dicom_by_sop_uid`, if the search does not resolve to exactly
+    one file.
+
+    Returns
+    -------
+    (dose, plan, struct), suitable for `check_row_consistency`.
+    """
+    if search_dir is None:
+        search_dir = os.path.dirname(row.path) or '.'
+
+    dose = ingest.ingest_dose(row.path)
+
+    plan_path = _find_dicom_by_sop_uid(search_dir, dose.referencePlan)
+    plan = ingest.ingest_plan(plan_path)
+
+    if not plan.referencedStructureSetSequence:
+        raise ValueError(
+            f"plan {plan.sopInstanceUID!r} (from {plan_path!r}) has an "
+            f"empty referencedStructureSetSequence: cannot discover its "
+            f"structure set."
+        )
+    struct_sop_uid = plan.referencedStructureSetSequence[0].ReferencedSOPInstanceUID
+    struct_path = _find_dicom_by_sop_uid(search_dir, struct_sop_uid)
+    struct = ingest.ingest_struct(struct_path)
+
+    return dose, plan, struct

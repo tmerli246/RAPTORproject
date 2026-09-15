@@ -1,6 +1,6 @@
 # Evaluation Module
 
-Version 6.5. Version history is in `CHANGELOG.md`. Project status and open items are in `STATE.md`.
+Version 6.6. Version history is in `CHANGELOG.md`. Project status and open items are in `STATE.md`.
 
 ## 1. Purpose and scope
 
@@ -342,7 +342,9 @@ The 6.2 draft of this section stated that `evaluator/ntcp.py` and `evaluator/reg
 
 **The Section 4.4 sensitivity measurement**, the alternative ordering computed once on a real case, is unaffected by this round for the same reason: no real case exists yet to compute it on.
 
-**Wiring `compose.py`'s output into `registry.evaluate` for one strategy is now verified, end to end and against real registration**, `tests/test_end_to_end.py`, added 15 September 2026: DICOM ingest through `compute_bed`, real Morphons registration, `warp_bed`, `sum_bed`, `bed_to_eqd2`, into `registry.evaluate` with the pre-populated `rectum_bleeding_g2` model, reproducing a hand-computed EQD2 and NTCP to five and six significant figures. What that test does not do, and what remains open, is cohort-level orchestration: a cohort object with the `.rois`/`.covariates` shape `validate_cohort` expects, iterating many patients rather than the one this test constructs by hand. That belongs with the ingest work of extractor items 5 and 6, both now implemented individually but not yet driven by an orchestrator that builds such an object.
+**Wiring `compose.py`'s output into `registry.evaluate` for one strategy is verified end to end and against real registration**, `tests/test_end_to_end.py`, added 15 September 2026: DICOM ingest through `compute_bed`, real Morphons registration, `warp_bed`, `sum_bed`, `bed_to_eqd2`, into `registry.evaluate` with the pre-populated `rectum_bleeding_g2` model, reproducing a hand-computed EQD2 and NTCP to five and six significant figures.
+
+**`validate_cohort` itself is now tested against the real `REGISTRY`**, `tests/test_cohort_validation.py`, added 15 September 2026: a small cohort, a minimal `Patient` shape carrying only `.pid`, `.rois`, `.covariates` per `validate_cohort`'s own docstring, checked to raise on a missing ROI, naming the right patient, and on a missing covariate, using a locally constructed `'logistic'` model since the real `REGISTRY` has none with covariates populated yet. A two-patient cohort validated then evaluated end to end, and a cohort with one invalid patient confirmed to stop before either patient reaches `evaluate()`. Deliberately not built: a production `Cohort`/`Patient` class. `validate_cohort`'s own contract needs only an object with those three attributes; committing to a specific class is a decision for whoever writes the real cohort loader once ingest is driven across many patients from real files, not one this round makes unilaterally on that loader's behalf.
 
 ### 11.3 What is testable now, and what is not
 
@@ -366,7 +368,7 @@ Section 4.2 stated a worked example: α/β = 3 Gy, one fraction, two adjacent vo
 
 **`warp_bed` is tested as the thin delegation it is stated to be**, against a synthetic zero-displacement field, checking it returns exactly what `Deformation3D.deformImage` returns: the deformation logic itself is extractor 3.3's registration test, not re-tested here.
 
-**Not yet done.** Caching, per 11.2. Cohort-level orchestration for `registry.evaluate`, a real object with `validate_cohort`'s expected shape iterating many patients, per 11.2; single-evaluation wiring is verified, `tests/test_end_to_end.py`. The Section 4.4 sensitivity measurement and the Section 7.2 declared gEUD-binning approximation, both requiring a real case.
+**Not yet done.** Caching, per 11.2. A production cohort loader driving `validate_cohort` from real, many-patient data, per 11.2; the check itself is tested against the real registry, `tests/test_cohort_validation.py`. The Section 4.4 sensitivity measurement and the Section 7.2 declared gEUD-binning approximation, both requiring a real case.
 
 ### 11.6 End to end, implemented at version 6.5
 

@@ -23,6 +23,93 @@ No other document has been renumbered and the rule stands for the other three.
 
 ---
 
+# Extractor 5.7 and evaluator 6.6, the remaining minor items
+
+Extractor 5.6 to **5.7**, evaluator 6.5 to **6.6**. Road and allocator
+unchanged. No supervisory input. The three items explicitly left open
+after the end-to-end round, closed together since two of them turned out
+to need the same construction: `ingest_struct`/`ingest_plan` genuine
+synthetic-file tests, the manifest's `discover_and_load`, and
+`validate_cohort` tested against the real registry. 22 new tests across
+three files, 145 total in the extractor and evaluator work of this arc,
+144 passing, 1 conditionally skipped, on both the public OpenTPS release
+and the project's own checkout.
+
+**`tests/dicom_builders.py`, shared DICOM construction, not itself a test
+file.** Building the manifest's discovery function needed a real RTPLAN
+and a real RTSTRUCT to search for and load; that construction is exactly
+what closing the deferred struct/plan ingest tests also needed, so it was
+built once, shared, rather than duplicated across `test_ingest.py` and
+`test_manifest.py`. A minimal RT Ion Plan, one beam, one layer, a handful
+of spots, and a minimal RTSTRUCT both parsed on the first attempt, the
+required tag set read from `readDicomPlan`/`readDicomStruct`'s own source
+rather than guessed.
+
+**`ingest_struct` and `ingest_plan` now have genuine file-based tests,
+kept alongside their existing `monkeypatch` ones rather than replacing
+them.** A valid file never exercises the `None`-return branch those two
+readers have, confirmed in extractor 5.5; that behaviour still needs its
+own coverage regardless of how good the new fixtures are, so both kinds
+of test remain.
+
+**`manifest.discover_and_load` resolves a row's plan and structure set
+from its dose file's own DICOM references**, searching the dose file's
+own directory by default for a `SOPInstanceUID` match along
+`dose.referencePlan` then `plan.referencedStructureSetSequence`. A design
+decision this project controls, registered as **X11**, not a RayStation
+convention to wait for: whoever writes the manifest, most likely a script
+per open decision 26 of the allocator document, also controls where the
+files it names live. `manifest.py`'s own "no OpenTPS import" property no
+longer holds for this one function, which calls into `ingest.py` to
+actually load what it finds; stated in the module's own docstring rather
+than left for a reader to notice the mismatch.
+
+**`validate_cohort` tested against the real `registry.REGISTRY`**,
+`tests/test_cohort_validation.py`, a new file. A minimal local `Patient`
+dataclass, `.pid`/`.rois`/`.covariates`, matching `validate_cohort`'s own
+docstring exactly rather than a new production `Cohort` class: committing
+to a specific class is a decision for whoever writes the real cohort
+loader once ingest is driven across many patients from real files, not
+one this round makes on that loader's behalf. The real `REGISTRY`'s one
+populated model has no covariates, so the covariate-checking path is
+exercised against a locally constructed `'logistic'` model instead, not
+added to `REGISTRY` itself. A two-patient cohort validated then
+evaluated; a cohort with one invalid patient confirmed to stop before
+either patient reaches `evaluate()`.
+
+**STATE.md's header consolidated in the same round.** A block of detailed
+per-round narrative, roughly seventy lines, had accumulated below the
+compact round-by-round list without ever being removed once compacted
+into it, duplicating what the list and this file already state more
+concisely. Removed, keeping the two paragraphs that were not historical
+narrative: the tagging-convention explanation and the instruction to
+rewrite this file before bumping a document version. The round list
+itself is unaffected.
+
+| Change | Where |
+| --- | --- |
+| Section 16 rewritten: all four readers now genuinely tested; discovery function documented; axis-orientation finding referenced | extractor 16 |
+| Section 15 updated: both remaining items closed; the discovery convention's own limit added as newly open | extractor 15 |
+| X11 added: the discovery convention | extractor 14 |
+| Section 11.2 and 11.5 updated: `validate_cohort` tested against the real registry | evaluator 11.2, 11.5 |
+
+**Code and tests.**
+
+| File | Change |
+| --- | --- |
+| `tests/dicom_builders.py` | New: `write_ct_series`, `write_dose`, `write_struct`, `write_proton_plan`, shared across three test files |
+| `extractor/manifest.py` | `discover_and_load`, `_find_dicom_by_sop_uid` added; module docstring corrected to state the one function that now imports OpenTPS transitively |
+| `tests/test_ingest.py` | 4 new tests, genuine RTSTRUCT/RTPLAN parsing; the 4 existing `monkeypatch` tests kept |
+| `tests/test_manifest.py` | 9 new tests: `TestDiscoverAndLoad` (6), `TestFindDicomBySopUid` (3) |
+| `tests/test_cohort_validation.py` | New file, 9 tests |
+
+**Open, added.** X11's own limit: not yet tested against anything but a
+directory this project's own tests populated: whether a real RayStation
+export in fact places a row's plan and structure set alongside its dose
+file is unconfirmed. Everything else this round closes rather than opens.
+
+---
+
 # Evaluator 6.5, end to end
 
 Evaluator 6.4 to **6.5**. Extractor, road and allocator unchanged. No

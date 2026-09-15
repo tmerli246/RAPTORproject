@@ -1,14 +1,13 @@
 """Tests for extractor.ingest.
 
-CT and dose are tested against genuine synthetic DICOM files, built with
-pydicom directly rather than mocked, so the parsing itself is exercised,
-not only this module's own wrapper logic. Struct and plan are tested at
-the wrapper-logic level only, via monkeypatch: constructing a minimal but
-genuinely valid RTSTRUCT or RTPLAN file, with its nested ROI and beam
-sequences, is materially more involved than CT or dose, and is deferred
-as a stated scope decision rather than attempted at lower quality. The
-None-check logic these two wrappers add is identical in shape to CT and
-dose's, already exercised for real there.
+CT, dose, struct and plan are all tested against genuine synthetic DICOM
+files, built with the shared helpers in `dicom_builders.py` rather than
+mocked, so parsing itself is exercised throughout. Struct and plan were
+deferred here when this file was first written, given the construction
+cost of a minimal but genuinely valid RTSTRUCT or RTPLAN; `dicom_builders.py`
+closes that gap, one commit later, once the discovery function of
+`manifest.py` needed the same construction anyway and made it worth doing
+properly rather than twice.
 """
 
 import os
@@ -20,6 +19,7 @@ from pydicom.dataset import Dataset, FileMetaDataset
 from pydicom.uid import ExplicitVRLittleEndian, generate_uid
 
 from tps5d.extractor import ingest
+from dicom_builders import write_struct, write_proton_plan
 
 
 # ---------------------------------------------------------------------------
@@ -187,12 +187,41 @@ class TestIngestDose:
 
 
 # ---------------------------------------------------------------------------
-# ingest_struct, ingest_plan: wrapper-logic tests via monkeypatch
+# ingest_struct, ingest_plan
 # ---------------------------------------------------------------------------
 
-class TestIngestStructWrapperLogic:
+class TestIngestStruct:
+
+    def test_reads_a_real_struct_file(self, tmp_path):
+        path, sop_uid, frame_uid = write_struct(
+            {'Rectum_dicom_name': (39.0, 39.0, [23.0, 25.0, 27.0], 6.0)},
+            str(tmp_path), 'struct.dcm',
+        )
+
+        struct = ingest.ingest_struct(path)
+
+        assert [c.name for c in struct.contours] == ['Rectum_dicom_name']
+        assert struct.sopInstanceUID == sop_uid
+
+    def test_reads_multiple_rois(self, tmp_path):
+        path, _, _ = write_struct(
+            {
+                'Rectum_dicom_name': (39.0, 39.0, [23.0, 25.0], 6.0),
+                'Bladder_dicom_name': (10.0, 10.0, [10.0, 12.0], 4.0),
+            },
+            str(tmp_path), 'struct.dcm',
+        )
+
+        struct = ingest.ingest_struct(path)
+
+        assert {c.name for c in struct.contours} == {'Rectum_dicom_name', 'Bladder_dicom_name'}
 
     def test_passes_through_a_successful_parse(self, monkeypatch):
+        """Wrapper-logic check, complementary to the file-based tests
+        above: a valid file never exercises the None branch, so that
+        behaviour needs its own coverage regardless of how good the
+        fixture files are.
+        """
         sentinel = object()
         monkeypatch.setattr(ingest, 'readDicomStruct', lambda path: sentinel)
         assert ingest.ingest_struct('irrelevant.dcm') is sentinel
@@ -203,7 +232,23 @@ class TestIngestStructWrapperLogic:
             ingest.ingest_struct('missing_series_uid.dcm')
 
 
-class TestIngestPlanWrapperLogic:
+class TestIngestPlan:
+
+    def test_reads_a_real_plan_file(self, tmp_path):
+        path, sop_uid = write_proton_plan(str(tmp_path), 'plan.dcm', n_spots=3)
+
+        plan = ingest.ingest_plan(path)
+
+        assert plan.sopInstanceUID == sop_uid
+        assert plan.numberOfSpots == 3
+
+    def test_plan_carries_its_structure_set_reference(self, tmp_path):
+        struct_uid = generate_uid()
+        path, _ = write_proton_plan(str(tmp_path), 'plan.dcm', referenced_struct_sop_uid=struct_uid)
+
+        plan = ingest.ingest_plan(path)
+
+        assert plan.referencedStructureSetSequence[0].ReferencedSOPInstanceUID == struct_uid
 
     def test_passes_through_a_successful_parse(self, monkeypatch):
         sentinel = object()

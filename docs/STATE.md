@@ -2,10 +2,10 @@
 
 **Last updated:** 2026-09-15, at tag `design-v6.3`. No new tag: nothing since
 `design-v6.3` has changed verified behaviour enough to cut one, extractor
-code included. `extractor_design.md` is at **5.6**, `evaluator_design.md` at
-**6.5**. Road and allocator unchanged at 7.0 and 7.0.
+code included. `extractor_design.md` is at **5.7**, `evaluator_design.md` at
+**6.6**. Road and allocator unchanged at 7.0 and 7.0.
 
-Eight rounds since extractor 5.2 and evaluator 6.1, condensed to one line
+Nine rounds since extractor 5.2 and evaluator 6.1, condensed to one line
 each; full detail in `CHANGELOG.md`, current status in Sections 6 and 7
 below.
 
@@ -17,75 +17,17 @@ below.
 - extractor 5.5: DICOM ingest; three of OpenTPS's four DICOM readers return `None` rather than raise, a systemic pattern.
 - extractor 5.6: the provenance table, closing the last infrastructure item this document had specified but not built.
 - evaluator 6.5: end-to-end test, every module exercised together for the first time; no new defect found.
-
-**The third round is a code change, the first this file has to record for the
-extractor.** `src/tps5d/extractor/records.py` and `adapters.py` now exist:
-`DIRSettings`, `WorkingGrid`, `CropBounds`, `TargetMetrics`, `PlanComplexity`
-as plain records, and `get_dvf`, `target_metrics`, `extract_roi_mask`,
-`union_bounding_box`, `crop_to_bounds`, `roi_volume_cc`, `extract_plan_complexity`
-as the OpenTPS-facing functions X1 confines to one module. 29 new tests in
-`tests/test_adapters.py`, all passing against the installed environment,
-`opentps 3.0.1` here and confirmed by Tommaso against the project's own
-`opentps 3.0.0` checkout: 270 passed in total. Executing rather than only
-reading found real defects a review would not have: `Deformation3D.resample`
-mutates in place and returns `None`, so an earlier `return field.resample(...)`
-would have silently discarded the field on every call; a `maxDVH` set from the
-observed dose maximum alone raises `IndexError` on a cold plan, since the
-dose-percentage axis then never reaches the 95% query point, which is the same
-class of bug the fixed `maxDVH` was written to close, on the opposite tail;
-`ROIContour.getBinaryMask` is deprecated and forwards to `get_partial_volume_mask`,
-whose own default for `binarization_threshold` returns a float array rather than
-the bool the schema requires; `RTStruct.getContourByName` does not raise on a
-miss, it prints and returns `None`; and `get_partial_volume_mask` itself only
-logs, rather than raises, when the working grid does not contain a contour's
-bounding box, through a logging call that is itself malformed and throws
-`TypeError` under some configurations rather than printing. Detail and the
-document sections each finding changed are in `CHANGELOG.md`.
-
-**The verification changed the design in three places, which is why the evaluator
-moved at all.** All 34 API entries are present, so the mapping needed no
-correction for absence; reading the signatures and the Morphons source found
-two things no document would have predicted. The deformation field carries its
-own grid, set by `baseResolution`, so there are three grids and not two, and it
-upper-bounds the accuracy of every accumulation. And `DVH.computeDVH` truncates
-its dose axis at 100 Gy absolute, which is harmless for physical dose and would
-silently clip accumulated EQD2 on the hypofractionated arms at the low alpha
-over beta of late-responding organs. The second is the evaluator's territory,
-since it bites where the DVH meets EQD2. The third came from benchmarking rather than
-reading: the deformation field's resolution has two floors and not one, which
-yields a rule for `baseResolution`, and `nbProcesses` is settled against the
-parallel path on measured time. Separately, the units the prescription enters
-`computeVx` in are now fixed, since the wrong choice returns V95% of zero for a
-whole cohort without raising.
-
-The `maxDVH` finding was made before the composition machinery exists to be
-damaged by it.
-
-The round is major on its own document for three reasons: it adds an
-assumptions register that did not exist, it revises the masking rule that had
-stood since version 1, and it renumbers the sections. Nothing it decides
-touches another document's register, which is why the lockstep convention does
-not fire and the other three do not move.
-
-**Section numbering changed in `extractor_design.md`.** Sections now follow
-pipeline order. Provenance moves from 11 to **13**; implementation strategy and
-plan identity occupy the new 3 and 4; the vacant 12 to 14 of earlier versions
-are gone. The two pointers in this file are updated. `evaluator_design.md`
-names the extractor only in prose and needed no change. The full mapping is in
-`CHANGELOG.md`, which also carries a note that its own "existing numbers were
-preserved" rule now has one documented exception.
+- extractor 5.7 and evaluator 6.6: the remaining minor items closed together, `ingest_struct`/`ingest_plan` genuine tests, the manifest's `discover_and_load`, `validate_cohort` tested against the real registry.
 
 **Code tags track behaviour, not the document version number, and the two are
 not the same count.** A code round is tagged `design-vX.Y` for the document
 generation its *behaviour* matches, X, with Y as a sub-counter for code-only
 increments within that generation; it is not bumped to a document's version
 number merely because the code touches something that document also covers.
-The code round changed the schema and the synthetic generator to carry the
-version 7 option-set structure and rescue metadata, but the evaluator's dose
-composition and coverage screen, the part of the design that actually
-changed *behaviourally* at version 7, are untouched, so the code still
-*behaves* like version 6 throughout. **Tagged `design-v6.3`**, the next patch
-in the v6 series, not v7.0. Commit history is in Section 6. The first
+Nothing since `design-v6.3` has changed verified behaviour enough to cut a
+new tag, extractor and evaluator code from this file's Sections 6 and 7
+included: the code exists and is tested, but the design generation it
+implements against is still the one `design-v6.3` names. The first
 `design-v7.x` tag is earned once the evaluator implements the rescue
 substitution; its number is not decided now.
 
@@ -110,8 +52,8 @@ All six live in `docs/` at the repository root, alongside `README.md` and
 | --- | --- | --- |
 | `ROAD_TO_PAPER_1.md` | 7.0 | Scientific question, hypothesis, arm set, uncertainty budget, plan budget, endpoint policy, what the paper claims. Open problems register (4.8). Appendix F, single copy |
 | `allocator_design.md` | 7.0 | Optimization problem, algorithm, shadow prices, step-ratio threshold, policy comparison. Assumptions register (11, amended at 11.1 and 11.2) and open decisions (12) |
-| `evaluator_design.md` | 6.5 | Dose composition, accumulation ordering, EQD2 conversion, NTCP evaluation, admissibility screens, strategy construction. Assumptions register (10, amended at 10.1 and 10.2). Implementation strategy for the composition machinery (11), appended rather than inserted, so existing pointers into this document are unaffected. `compose.py` implemented, tested on both environments, and reconciled with `ntcp.py`/`registry.py` after Tommaso supplied them; the 4.2 discrepancy corrected; end-to-end test added (11.6) |
-| `extractor_design.md` | 5.6 | Ingest (16, implemented), plan identity and the export manifest, registration, storage, target metrics, plan complexity, ROI naming, provenance (13, implemented). Assumptions register (14), prefix X |
+| `evaluator_design.md` | 6.6 | Dose composition, accumulation ordering, EQD2 conversion, NTCP evaluation, admissibility screens, strategy construction. Assumptions register (10, amended at 10.1 and 10.2). Implementation strategy for the composition machinery (11), appended rather than inserted, so existing pointers into this document are unaffected. `compose.py` implemented, tested on both environments, and reconciled with `ntcp.py`/`registry.py` after Tommaso supplied them; the 4.2 discrepancy corrected; end-to-end test added (11.6); `validate_cohort` tested against the real registry |
+| `extractor_design.md` | 5.7 | Ingest (16, implemented, all four readers genuinely tested, discovery function added). Plan identity and the export manifest, registration, storage, target metrics, plan complexity, ROI naming, provenance (13, implemented). Assumptions register (14, prefix X, through X11) |
 | `CHANGELOG.md` | - | Version history for all four. Kept in the repository, not in the project knowledge |
 
 The evaluator is one version behind the allocator by convention on the major
@@ -337,17 +279,19 @@ of the four commits below in sequence (236 → 245 → 245 → 260 → 260), by
 applying the four patches to a clean checkout of `design-v6.2` and running
 the suite after each.
 
-**Grand total after `test_end_to_end.py`: 382 passed, 1 skipped, 383
+**Grand total after this round's additions: 404 passed, 1 skipped, 405
 collected**, not yet independently confirmed by Tommaso as of this entry;
-372 passed, 1 skipped was confirmed by him on 15 September 2026, before this
-file was added. 260 baseline plus 122 from the extractor and evaluator work
-of this file's Sections 6 and 7: `test_adapters.py` 36, `test_roi_mapping.py`
-11, `test_manifest.py` 15, `test_compose.py` 21, `test_ingest.py` 10,
-`test_provenance.py` 20, `test_end_to_end.py` 10, summing to 123, 1
-conditionally skipped depending on which ROI-masking backend an environment
-has (X10). 260 + 122 = 382 is the number to check against the next
-`pytest tests -q` run, the same reconciliation this paragraph has carried
-at every round rather than a number to take on faith.
+372 passed, 1 skipped was confirmed by him on 15 September 2026, before
+`test_end_to_end.py` and this round's ingest/manifest/cohort additions.
+260 baseline plus 144 from the extractor and evaluator work of this file's
+Sections 6 and 7, across eight files: `test_adapters.py` 36,
+`test_roi_mapping.py` 11, `test_manifest.py` 24, `test_compose.py` 21,
+`test_ingest.py` 14, `test_provenance.py` 20, `test_end_to_end.py` 10,
+`test_cohort_validation.py` 9, summing to 145, 1 conditionally skipped
+depending on which ROI-masking backend an environment has (X10).
+260 + 144 = 404 is the number to check against the next `pytest tests -q`
+run, the same reconciliation this paragraph has carried at every round
+rather than a number to take on faith.
 
 **Committed, four commits, `design-v6.3` tagged at the fourth.**
 
@@ -550,11 +494,25 @@ every image goes through the identical writer and reader. Scope, stated
 rather than implied: structure set and plan are constructed directly via
 OpenTPS objects, not through `ingest_struct`/`ingest_plan`, consistent with
 that item remaining open below rather than being silently closed here.
+Closed in the next round, immediately below.
+
+**Ingest and manifest, remaining items closed, 15 September 2026.**
+`tests/dicom_builders.py`, shared DICOM construction for CT, dose, struct
+and plan, needed once building the manifest's discovery function required
+genuine RTSTRUCT/RTPLAN files anyway: `ingest_struct` and `ingest_plan` now
+have real synthetic-file tests alongside their existing wrapper-logic
+ones. `manifest.discover_and_load` resolves a row's plan and structure set
+from its dose file's own DICOM references, searching the dose file's own
+directory by default; registered as X11, a decision this project controls
+rather than one dependent on a RayStation convention. `validate_cohort`
+tested against the real `registry.REGISTRY`, `tests/test_cohort_validation.py`,
+including the covariate-checking path the real registry's one populated
+model does not exercise on its own. 22 new tests across the three files.
 
 **Still to do in the extractor**: the importing DVF
 backend, which remains a stub pending the RayStation export conventions of
-X7 and X9; the manifest-discovery function above; and synthetic-file tests
-for `ingest_struct`/`ingest_plan` matching CT and dose's.
+X7 and X9; a production cohort loader driving `validate_cohort` from real,
+many-patient data, once real ingest data exists to drive it with.
 
 Not testable now, and stated as a limit of validation rather than of
 implementation: whether the parser survives a real RayStation export (X9), DIR
