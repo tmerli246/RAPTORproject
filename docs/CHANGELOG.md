@@ -23,6 +23,88 @@ No other document has been renumbered and the rule stands for the other three.
 
 ---
 
+# Evaluator 6.5, end to end
+
+Evaluator 6.4 to **6.5**. Extractor, road and allocator unchanged. No
+supervisory input. New file, `tests/test_end_to_end.py`, and new evaluator
+Section 11.6. Every module built across this session's extractor and
+evaluator rounds, exercised together for the first time: DICOM ingest,
+extraction, real Morphons registration, composition, DVH reduction, NTCP
+evaluation, rather than each module's own isolated fixtures. 10 tests,
+passing against both the public OpenTPS release and the project's own
+checkout on first run.
+
+**Why now, and why this rather than another unit test.** Every function
+built in this session had its own tests, and every one passed in
+isolation. The two most serious defects found in this whole arc, the
+`compose.py`/`ntcp.py` dose-convention mismatch corrected at evaluator
+6.4, and the ROI-masking backend divergence between environments found at
+extractor 5.3, were both invisible to those isolated tests: each module
+was internally correct on its own terms, and the two only disagreed at
+the seam between them, a seam no single module's test suite is positioned
+to see. This file tests seams by construction.
+
+**A scenario designed to be hand-checkable despite using real
+registration.** Two blocks, spatially uniform dose per block:
+`n_fx = 25`, block 1 at 2.0 Gy/fraction, block 2 at 1.8 Gy/fraction,
+`alpha_beta = 3.0`, matching the pre-populated `rectum_bleeding_g2` model
+in `registry.py` exactly. A uniform BED field should warp to
+approximately the same uniform value under any correct deformation field,
+away from the domain's edges, so real Morphons registration is used
+rather than an identity or zero-displacement field, and the result is
+still checkable against a value computed independently and by hand before
+the pipeline ran: BED = 25×2.0×(1+2/3) + 25×1.8×(1+1.8/3) = 155.333,
+EQD2 = 155.333/(1+2/3) = 93.2 Gy exactly, NTCP = 0.948501 through
+`scipy.stats.norm.cdf`. First run reproduced 93.20001 Gy and 0.9485010,
+agreement to five and six significant figures, the residual consistent
+with registration interpolation.
+
+**Both of `compose.py`'s output paths are exercised and cross-checked**,
+per evaluator 11.1's distinction: `reduce_to_dvh` then `geud_from_dvh`,
+the cached path, against direct voxel masking into `ntcp.geud` and
+`registry.evaluate`, the primary nominal-evaluation path. The two agree
+to within the binning error evaluator 7.2 already declares, not exactly,
+which is itself a check that the declared approximation is the right
+size and not hiding something larger.
+
+**Scope, stated rather than implied.** CT and dose go through real
+`ingest_ct`/`ingest_dose` against DICOM files built with `pydicom`. The
+structure set and the plan are constructed directly via OpenTPS objects,
+not through `ingest_struct`/`ingest_plan`: synthetic RTSTRUCT/RTPLAN
+DICOM construction remains the open item at extractor 15, and this file
+does not close it, since doing so is separable work with its own value,
+not a prerequisite for testing the composition seam this file exists for.
+
+**A secondary finding, noted rather than chased down.**
+`readDicomCT`'s `.transpose(1, 0, 2)`, converting DICOM's
+(Rows, Columns, Slices) to OpenTPS's internal axis order, was invisible
+to every earlier test in this project: all used spatially uniform
+phantoms, transpose-invariant by construction. This scenario's phantom is
+not, and a DICOM writer that does not account for which of its axes
+DICOM calls a row does not round-trip to the same array it started from.
+Does not affect this file's own scenario, since pCT and both rCTs go
+through the identical writer and reader and stay mutually consistent
+regardless of the convention; would matter for a test needing a specific
+array axis to mean a specific anatomical direction, which none in this
+project yet does.
+
+| Change | Where |
+| --- | --- |
+| New Section 11.6: the end-to-end test, why it matters more than another unit test, the hand-checked scenario, the secondary finding | evaluator 11.6 |
+| 11.2 and 11.5 updated: single-evaluation wiring into `registry.evaluate` is now verified; cohort-level orchestration remains the open part | evaluator 11.2, 11.5 |
+
+**Code and tests.**
+
+| File | Contents |
+| --- | --- |
+| `tests/test_end_to_end.py` | 10 tests across `TestIngestSeam`, `TestExtractionSeam`, `TestCompositionSeam`, sharing one module-scoped pipeline run |
+
+**Open, added.** None. Cohort-level orchestration, RTSTRUCT/RTPLAN DICOM
+construction and the manifest-discovery function remain open from earlier
+rounds, restated here as unaffected rather than newly opened.
+
+---
+
 # Extractor 5.6, the provenance table
 
 Extractor 5.5 to **5.6**. Evaluator, road and allocator unchanged. No

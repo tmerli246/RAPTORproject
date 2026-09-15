@@ -3,24 +3,20 @@
 **Last updated:** 2026-09-15, at tag `design-v6.3`. No new tag: nothing since
 `design-v6.3` has changed verified behaviour enough to cut one, extractor
 code included. `extractor_design.md` is at **5.6**, `evaluator_design.md` at
-**6.4**. Road and allocator unchanged at 7.0 and 7.0.
+**6.5**. Road and allocator unchanged at 7.0 and 7.0.
 
-Seven rounds since extractor 5.2 and evaluator 6.1 are not re-narrated here in
-full; detail for each is in `CHANGELOG.md`, current status in Sections 6 and
-7 below. In order: extractor 5.3 corrected the ROI-masking code against the
-project's own OpenTPS checkout, found to differ from the public release it
-had first been verified against; extractor 5.4 added TG-263 resolution and
-the export manifest; evaluator 6.2 specified the composition machinery's
-implementation strategy, design only; evaluator 6.3 implemented it,
-`evaluator/compose.py`; evaluator 6.4 reconciled that code with
-`evaluator/ntcp.py` and `evaluator/registry.py` once Tommaso supplied them,
-removing duplicated arithmetic, and resolved a numerical discrepancy in the
-4.2 worked example the 6.3 round had only flagged; extractor 5.5 added
-DICOM ingest, `extractor/ingest.py`, finding that three of OpenTPS's four
-DICOM readers return `None` rather than raise on unrecognised input, a
-systemic pattern rather than a single function's quirk; extractor 5.6 added
-the provenance table, `extractor/provenance.py`, closing the last piece of
-infrastructure this document had specified but not yet built.
+Eight rounds since extractor 5.2 and evaluator 6.1, condensed to one line
+each; full detail in `CHANGELOG.md`, current status in Sections 6 and 7
+below.
+
+- extractor 5.3: ROI-masking code corrected against the project's own checkout, found to differ from the public release it was first verified against.
+- extractor 5.4: TG-263 resolution and the export manifest.
+- evaluator 6.2: composition machinery's implementation strategy, design only.
+- evaluator 6.3: `evaluator/compose.py` implemented against that strategy.
+- evaluator 6.4: reconciled with `evaluator/ntcp.py`/`registry.py` once Tommaso supplied them, removing duplicated arithmetic; the 4.2 worked-example discrepancy resolved.
+- extractor 5.5: DICOM ingest; three of OpenTPS's four DICOM readers return `None` rather than raise, a systemic pattern.
+- extractor 5.6: the provenance table, closing the last infrastructure item this document had specified but not built.
+- evaluator 6.5: end-to-end test, every module exercised together for the first time; no new defect found.
 
 **The third round is a code change, the first this file has to record for the
 extractor.** `src/tps5d/extractor/records.py` and `adapters.py` now exist:
@@ -114,7 +110,7 @@ All six live in `docs/` at the repository root, alongside `README.md` and
 | --- | --- | --- |
 | `ROAD_TO_PAPER_1.md` | 7.0 | Scientific question, hypothesis, arm set, uncertainty budget, plan budget, endpoint policy, what the paper claims. Open problems register (4.8). Appendix F, single copy |
 | `allocator_design.md` | 7.0 | Optimization problem, algorithm, shadow prices, step-ratio threshold, policy comparison. Assumptions register (11, amended at 11.1 and 11.2) and open decisions (12) |
-| `evaluator_design.md` | 6.4 | Dose composition, accumulation ordering, EQD2 conversion, NTCP evaluation, admissibility screens, strategy construction. Assumptions register (10, amended at 10.1 and 10.2). Implementation strategy for the composition machinery (11), appended rather than inserted, so existing pointers into this document are unaffected. `compose.py` implemented, tested on both environments, and reconciled with `ntcp.py`/`registry.py` after Tommaso supplied them; the 4.2 discrepancy corrected |
+| `evaluator_design.md` | 6.5 | Dose composition, accumulation ordering, EQD2 conversion, NTCP evaluation, admissibility screens, strategy construction. Assumptions register (10, amended at 10.1 and 10.2). Implementation strategy for the composition machinery (11), appended rather than inserted, so existing pointers into this document are unaffected. `compose.py` implemented, tested on both environments, and reconciled with `ntcp.py`/`registry.py` after Tommaso supplied them; the 4.2 discrepancy corrected; end-to-end test added (11.6) |
 | `extractor_design.md` | 5.6 | Ingest (16, implemented), plan identity and the export manifest, registration, storage, target metrics, plan complexity, ROI naming, provenance (13, implemented). Assumptions register (14), prefix X |
 | `CHANGELOG.md` | - | Version history for all four. Kept in the repository, not in the project knowledge |
 
@@ -334,14 +330,24 @@ What the evaluator itself still needs, once real imaging is available, is
 recorded as a next action in Section 7 rather than here, since it is blocked
 on the same data dependency as the science items there.
 
-**Test count.** 260 (236 plus the 24 new), all passing: confirmed in the
-working sandbox on SciPy 1.17.1, by Tommaso in the project's own conda
-environment, and independently at each of the four commits below in
-sequence (236 → 245 → 245 → 260 → 260), by applying the four patches to a
-clean checkout of `design-v6.2` and running the suite after each. This count
-is the allocator and evaluator side; the extractor's own count is in the
-paragraph above and is tracked separately, since it started from zero rather
-than from an existing baseline.
+**Test count.** 260 (236 plus the 24 new) is the allocator and evaluator
+baseline, all passing: confirmed in the working sandbox on SciPy 1.17.1, by
+Tommaso in the project's own conda environment, and independently at each
+of the four commits below in sequence (236 → 245 → 245 → 260 → 260), by
+applying the four patches to a clean checkout of `design-v6.2` and running
+the suite after each.
+
+**Grand total after `test_end_to_end.py`: 382 passed, 1 skipped, 383
+collected**, not yet independently confirmed by Tommaso as of this entry;
+372 passed, 1 skipped was confirmed by him on 15 September 2026, before this
+file was added. 260 baseline plus 122 from the extractor and evaluator work
+of this file's Sections 6 and 7: `test_adapters.py` 36, `test_roi_mapping.py`
+11, `test_manifest.py` 15, `test_compose.py` 21, `test_ingest.py` 10,
+`test_provenance.py` 20, `test_end_to_end.py` 10, summing to 123, 1
+conditionally skipped depending on which ROI-masking backend an environment
+has (X10). 260 + 122 = 382 is the number to check against the next
+`pytest tests -q` run, the same reconciliation this paragraph has carried
+at every round rather than a number to take on faith.
 
 **Committed, four commits, `design-v6.3` tagged at the fourth.**
 
@@ -521,6 +527,29 @@ query, not maintained by hand. CSV persistence in the same style as the
 ROI mapping file. 20 tests in `tests/test_provenance.py`. What this module
 does not do: decide which quantities are primitives worth tagging, a
 judgement Section 13.2 leaves to the caller, not to the storage mechanism.
+
+**End-to-end test, added 15 September 2026, evaluator 6.5.**
+`tests/test_end_to_end.py`: every module the extractor and evaluator work
+above has built, exercised together for the first time, DICOM ingest
+through real Morphons registration through `registry.evaluate`, rather
+than each module's own isolated fixtures. This is where this session's two
+most serious bugs actually lived, the `compose.py`/`ntcp.py` dose-convention
+mismatch and the ROI-masking backend divergence, both invisible to any
+single module's own tests since each was internally correct and the two
+only disagreed at the seam between them. A synthetic two-block, uniform-dose
+scenario built so the result is hand-checkable despite using real
+registration: expected EQD2 93.2 Gy and NTCP 0.948501 through the
+pre-populated `rectum_bleeding_g2` model, computed independently before the
+pipeline ran; first run reproduced 93.20001 Gy and 0.9485010, agreement to
+five and six significant figures. 10 tests, passing against both
+environments on first run, no new defect found this time. Secondary
+finding, not chased down: `readDicomCT`'s axis transpose was invisible to
+every earlier test's uniform-valued phantoms and surfaces only with a
+spatially varying one; does not affect this test's own scenario, since
+every image goes through the identical writer and reader. Scope, stated
+rather than implied: structure set and plan are constructed directly via
+OpenTPS objects, not through `ingest_struct`/`ingest_plan`, consistent with
+that item remaining open below rather than being silently closed here.
 
 **Still to do in the extractor**: the importing DVF
 backend, which remains a stub pending the RayStation export conventions of

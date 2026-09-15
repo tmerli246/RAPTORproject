@@ -1,6 +1,6 @@
 # Evaluation Module
 
-Version 6.4. Version history is in `CHANGELOG.md`. Project status and open items are in `STATE.md`.
+Version 6.5. Version history is in `CHANGELOG.md`. Project status and open items are in `STATE.md`.
 
 ## 1. Purpose and scope
 
@@ -342,7 +342,7 @@ The 6.2 draft of this section stated that `evaluator/ntcp.py` and `evaluator/reg
 
 **The Section 4.4 sensitivity measurement**, the alternative ordering computed once on a real case, is unaffected by this round for the same reason: no real case exists yet to compute it on.
 
-**Wiring `compose.py`'s output into `registry.evaluate` end to end**, beyond confirming the interface shape above, is not done this round either: it requires a cohort object with the `.rois`/`.covariates` shape `validate_cohort` expects, which belongs with the ingest work of extractor items 5 and 6, not with this round.
+**Wiring `compose.py`'s output into `registry.evaluate` for one strategy is now verified, end to end and against real registration**, `tests/test_end_to_end.py`, added 15 September 2026: DICOM ingest through `compute_bed`, real Morphons registration, `warp_bed`, `sum_bed`, `bed_to_eqd2`, into `registry.evaluate` with the pre-populated `rectum_bleeding_g2` model, reproducing a hand-computed EQD2 and NTCP to five and six significant figures. What that test does not do, and what remains open, is cohort-level orchestration: a cohort object with the `.rois`/`.covariates` shape `validate_cohort` expects, iterating many patients rather than the one this test constructs by hand. That belongs with the ingest work of extractor items 5 and 6, both now implemented individually but not yet driven by an orchestrator that builds such an object.
 
 ### 11.3 What is testable now, and what is not
 
@@ -366,7 +366,19 @@ Section 4.2 stated a worked example: α/β = 3 Gy, one fraction, two adjacent vo
 
 **`warp_bed` is tested as the thin delegation it is stated to be**, against a synthetic zero-displacement field, checking it returns exactly what `Deformation3D.deformImage` returns: the deformation logic itself is extractor 3.3's registration test, not re-tested here.
 
-**Not yet done.** Caching, per 11.2. Wiring `compose.py`'s EQD2 output into `registry.evaluate` end to end against a real cohort object, per 11.2. The Section 4.4 sensitivity measurement and the Section 7.2 declared gEUD-binning approximation, both requiring a real case.
+**Not yet done.** Caching, per 11.2. Cohort-level orchestration for `registry.evaluate`, a real object with `validate_cohort`'s expected shape iterating many patients, per 11.2; single-evaluation wiring is verified, `tests/test_end_to_end.py`. The Section 4.4 sensitivity measurement and the Section 7.2 declared gEUD-binning approximation, both requiring a real case.
+
+### 11.6 End to end, implemented at version 6.5
+
+`tests/test_end_to_end.py`, added 15 September 2026: every module this project's extractor and evaluator work has built, exercised together for the first time, against DICOM files and a real Morphons registration rather than each module's own isolated fixtures. A synthetic two-block scenario, DICOM ingest through `compute_bed`, real registration, `warp_bed`, `sum_bed`, `bed_to_eqd2`, `reduce_to_dvh`, into `registry.evaluate` with the pre-populated `rectum_bleeding_g2` model. 10 tests, passing against both the public OpenTPS release and the project's own checkout on first run.
+
+**Why this matters more than another unit test.** This session's two most serious findings, the dose-convention mismatch between `compose.py` and `ntcp.py` at 6.4, and the ROI-masking backend divergence between environments at extractor 5.3, were both invisible to any single module's own tests: each module was internally correct and the two only disagreed at the seam between them. This file tests seams directly, by construction, rather than components.
+
+**The scenario is designed to be hand-checkable despite using real registration.** Dose per block is spatially uniform, so a correct pipeline should return the accumulated EQD2 close to the analytic value regardless of the deformation field's spatial detail, away from the domain's edges. `n_fx = 25`, `alpha_beta = 3.0` matches `rectum_bleeding_g2` exactly, so the result is a real NTCP number through the actual registry model, not an invented one. Expected values computed independently before the pipeline ran: EQD2 = 93.2 Gy, NTCP = 0.948501. First run reproduced 93.20001 Gy and 0.9485010, agreement to five and six significant figures, consistent with registration interpolation rather than a defect.
+
+**Scope, stated rather than implied.** CT and dose go through real `ingest_ct`/`ingest_dose`. The structure set and plan are constructed directly via OpenTPS objects, not through `ingest_struct`/`ingest_plan`: synthetic RTSTRUCT/RTPLAN DICOM construction remains the stated open item at extractor 15, not something this file closes.
+
+**A secondary finding, noted rather than resolved.** `readDicomCT`'s `.transpose(1, 0, 2)` between DICOM's (Rows, Columns, Slices) and OpenTPS's internal order was invisible to every earlier test in this project, all of which used spatially uniform phantoms, transpose-invariant by construction. This scenario's phantom is not, and a naive DICOM writer that does not account for which axis DICOM calls a row does not round-trip to the same array. It does not affect this test, since pCT and both rCTs go through the identical writer and reader and so remain mutually consistent; it would matter for a test needing a specific array axis to mean a specific anatomical direction, which none in this project yet does.
 
 ## Appendix F. Fractionation
 
