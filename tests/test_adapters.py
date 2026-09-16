@@ -32,6 +32,7 @@ from opentps.core.processing.imageProcessing.syntheticDeformation import applyBa
 
 from tps5d.extractor.records import DIRSettings, TargetMetrics
 from tps5d.extractor.adapters import get_dvf, target_metrics
+from dicom_builders import write_dvf
 
 
 GRID = (40, 40, 30)
@@ -99,13 +100,59 @@ class TestGetDVF:
 
         assert tuple(np.round(field.spacing, 3)) == SPACING
 
-    def test_imported_backend_is_a_stub(self):
-        """X2: the importing backend raises until export conventions are known."""
+    def test_imported_backend_requires_a_path(self):
+        """DIRSettings itself raises on backend='imported' with no
+        imported_path, before get_dvf is even called: caught at
+        construction, not at use.
+        """
+        with pytest.raises(ValueError, match='imported_path'):
+            DIRSettings(base_resolution=2.0, backend='imported')
+
+    def test_imported_backend_reads_a_real_dvf_file(self, tmp_path):
+        """The full imported path, DICOM file through Deformation3D,
+        against a synthetic deformable registration object built the same
+        way extractor 16's other synthetic DICOM tests are. A uniform
+        6mm shift in x: a converted, resampled, then-applied field should
+        reproduce it closely, which is checked directly rather than only
+        checking that some field comes back.
+        """
         fixed = _sphere_ct()
-        settings = DIRSettings(base_resolution=2.0, backend='imported')
-        with pytest.raises(NotImplementedError):
-            get_dvf(moving=fixed, fixed=fixed, settings=settings,
-                   working_spacing=SPACING)
+        shift = (6.0, 0.0, 0.0)
+        dvf_grid = tuple(int(v) for v in fixed.gridSize)
+        path = write_dvf(shift, dvf_grid, SPACING, ORIGIN, str(tmp_path), 'dvf.dcm')
+
+        settings = DIRSettings(base_resolution=SPACING[0], backend='imported',
+                               imported_path=path)
+        field = get_dvf(moving=fixed, fixed=fixed, settings=settings,
+                        working_spacing=SPACING)
+
+        assert tuple(field.gridSize) == dvf_grid
+        assert tuple(np.round(field.spacing, 6)) == SPACING
+
+        moved = np.full(GRID, 50.0, dtype=np.float32)
+        source = DoseImage(imageArray=moved, origin=ORIGIN, spacing=SPACING)
+        result = field.deformImage(source)
+        centre_slice = tuple(slice(g // 2 - 5, g // 2 + 5) for g in GRID)
+        assert np.allclose(result.imageArray[centre_slice], 50.0, atol=1e-3)
+
+    def test_imported_backend_ignores_moving(self, tmp_path):
+        """The field comes entirely from the file; a different `moving`
+        must not change the result, unlike the morphons backend where it
+        is the whole input.
+        """
+        fixed = _sphere_ct()
+        other_moving = _sphere_ct(seed=1)
+        dvf_grid = tuple(int(v) for v in fixed.gridSize)
+        path = write_dvf((3.0, 0.0, 0.0), dvf_grid, SPACING, ORIGIN, str(tmp_path), 'dvf.dcm')
+        settings = DIRSettings(base_resolution=SPACING[0], backend='imported',
+                               imported_path=path)
+
+        field_a = get_dvf(moving=fixed, fixed=fixed, settings=settings,
+                          working_spacing=SPACING)
+        field_b = get_dvf(moving=other_moving, fixed=fixed, settings=settings,
+                          working_spacing=SPACING)
+
+        assert np.array_equal(field_a.imageArray, field_b.imageArray)
 
 
 # ---------------------------------------------------------------------------

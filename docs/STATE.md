@@ -1,11 +1,11 @@
 # Project state
 
-**Last updated:** 2026-09-15, at tag `design-v6.3`. No new tag: nothing since
+**Last updated:** 2026-09-16, at tag `design-v6.3`. No new tag: nothing since
 `design-v6.3` has changed verified behaviour enough to cut one, extractor
-code included. `extractor_design.md` is at **5.7**, `evaluator_design.md` at
+code included. `extractor_design.md` is at **5.8**, `evaluator_design.md` at
 **6.6**. Road and allocator unchanged at 7.0 and 7.0.
 
-Nine rounds since extractor 5.2 and evaluator 6.1, condensed to one line
+Ten rounds since extractor 5.2 and evaluator 6.1, condensed to one line
 each; full detail in `CHANGELOG.md`, current status in Sections 6 and 7
 below.
 
@@ -18,6 +18,7 @@ below.
 - extractor 5.6: the provenance table, closing the last infrastructure item this document had specified but not built.
 - evaluator 6.5: end-to-end test, every module exercised together for the first time; no new defect found.
 - extractor 5.7 and evaluator 6.6: the remaining minor items closed together, `ingest_struct`/`ingest_plan` genuine tests, the manifest's `discover_and_load`, `validate_cohort` tested against the real registry.
+- extractor 5.8: the importing DVF backend's conversion path implemented and tested; only the read of a real RayStation file remains untested, X12.
 
 **Code tags track behaviour, not the document version number, and the two are
 not the same count.** A code round is tagged `design-vX.Y` for the document
@@ -53,7 +54,7 @@ All six live in `docs/` at the repository root, alongside `README.md` and
 | `ROAD_TO_PAPER_1.md` | 7.0 | Scientific question, hypothesis, arm set, uncertainty budget, plan budget, endpoint policy, what the paper claims. Open problems register (4.8). Appendix F, single copy |
 | `allocator_design.md` | 7.0 | Optimization problem, algorithm, shadow prices, step-ratio threshold, policy comparison. Assumptions register (11, amended at 11.1 and 11.2) and open decisions (12) |
 | `evaluator_design.md` | 6.6 | Dose composition, accumulation ordering, EQD2 conversion, NTCP evaluation, admissibility screens, strategy construction. Assumptions register (10, amended at 10.1 and 10.2). Implementation strategy for the composition machinery (11), appended rather than inserted, so existing pointers into this document are unaffected. `compose.py` implemented, tested on both environments, and reconciled with `ntcp.py`/`registry.py` after Tommaso supplied them; the 4.2 discrepancy corrected; end-to-end test added (11.6); `validate_cohort` tested against the real registry |
-| `extractor_design.md` | 5.7 | Ingest (16, implemented, all four readers genuinely tested, discovery function added). Plan identity and the export manifest, registration, storage, target metrics, plan complexity, ROI naming, provenance (13, implemented). Assumptions register (14, prefix X, through X11) |
+| `extractor_design.md` | 5.8 | Ingest (16, implemented, all four readers genuinely tested, discovery function added). Plan identity and the export manifest, registration (6.1, both DVF backends implemented), storage, target metrics, plan complexity, ROI naming, provenance (13, implemented). Assumptions register (14, prefix X, through X12) |
 | `CHANGELOG.md` | - | Version history for all four. Kept in the repository, not in the project knowledge |
 
 The evaluator is one version behind the allocator by convention on the major
@@ -279,18 +280,20 @@ of the four commits below in sequence (236 → 245 → 245 → 260 → 260), by
 applying the four patches to a clean checkout of `design-v6.2` and running
 the suite after each.
 
-**Grand total after this round's additions: 404 passed, 1 skipped, 405
-collected**, not yet independently confirmed by Tommaso as of this entry;
-372 passed, 1 skipped was confirmed by him on 15 September 2026, before
-`test_end_to_end.py` and this round's ingest/manifest/cohort additions.
-260 baseline plus 144 from the extractor and evaluator work of this file's
-Sections 6 and 7, across eight files: `test_adapters.py` 36,
-`test_roi_mapping.py` 11, `test_manifest.py` 24, `test_compose.py` 21,
-`test_ingest.py` 14, `test_provenance.py` 20, `test_end_to_end.py` 10,
-`test_cohort_validation.py` 9, summing to 145, 1 conditionally skipped
-depending on which ROI-masking backend an environment has (X10).
-260 + 144 = 404 is the number to check against the next `pytest tests -q`
-run, the same reconciliation this paragraph has carried at every round
+**Grand total: 406 passed, 1 skipped, 407 collected**, confirmed by
+Tommaso running `pytest tests -q` directly, matching this paragraph's own
+reconciliation exactly, 16 September 2026. The previous round's total, 404
+passed, 1 skipped, was confirmed the same way one round earlier; two
+fixes to the test suite itself were needed first that time, both found
+only by that real run and not by any run in this project's own working
+environment, detailed in `CHANGELOG.md`. 260 baseline plus 146 from the
+extractor and evaluator work of this file's Sections 6 and 7, across eight
+files: `test_adapters.py` 38, `test_roi_mapping.py` 11, `test_manifest.py`
+24, `test_compose.py` 21, `test_ingest.py` 14, `test_provenance.py` 20,
+`test_end_to_end.py` 10, `test_cohort_validation.py` 9, summing to 147, 1
+conditionally skipped depending on which ROI-masking backend an
+environment has (X10). 260 + 146 = 406 is what his run confirmed,
+the same reconciliation this paragraph has carried at every round
 rather than a number to take on faith.
 
 **Committed, four commits, `design-v6.3` tagged at the fourth.**
@@ -509,10 +512,24 @@ tested against the real `registry.REGISTRY`, `tests/test_cohort_validation.py`,
 including the covariate-checking path the real registry's one populated
 model does not exercise on its own. 22 new tests across the three files.
 
-**Still to do in the extractor**: the importing DVF
-backend, which remains a stub pending the RayStation export conventions of
-X7 and X9; a production cohort loader driving `validate_cohort` from real,
-many-patient data, once real ingest data exists to drive it with.
+**The importing DVF backend, implemented at extractor 5.8, 16 September
+2026.** `get_dvf(backend='imported')` reads via `readDicomVectorField`,
+then converts the returned `VectorField3D` into a `Deformation3D` via
+`initFromDisplacementField`, since the two classes share no interface,
+`deformImage` against `warp`, confirmed by reading both directly. The
+conversion is implemented and tested against a synthetic DICOM
+deformable registration file, the same construction pattern as extractor
+16's other synthetic DICOM tests, with a known uniform displacement
+recovered correctly. What remains untested is narrower than "the
+imported backend": only the read of a real RayStation-exported file,
+registered as **X12**, distinct from X7 (scenario doses) and X9 (general
+conventions), since neither named this specific object. 3 new tests in
+`test_adapters.py`.
+
+**Still to do in the extractor**: a production cohort loader driving
+`validate_cohort` from real, many-patient data, once real ingest data
+exists to drive it with; reading a real RayStation-exported DVF (X12),
+which needs a real export to inspect.
 
 Not testable now, and stated as a limit of validation rather than of
 implementation: whether the parser survives a real RayStation export (X9), DIR

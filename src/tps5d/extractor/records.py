@@ -17,14 +17,21 @@ class DIRSettings:
     base_resolution   mm. Sets the Morphons scale ladder. Recommended equal
                       to the working-grid spacing (extractor design 6.1);
                       below it is excluded on measurement, not merely
-                      discouraged (X5)
+                      discouraged (X5). Ignored when backend='imported',
+                      still required and validated: a settings object
+                      should be reusable across backends without silently
+                      changing shape
     n_processes       1 is the measured choice: the parallel path was slower
                       at every grid benchmarked (X2), so this is not a speed
-                      knob left at a placeholder
+                      knob left at a placeholder. Ignored when
+                      backend='imported'
     try_gpu           False in this environment, no cupy. Passed explicitly
                       regardless, since the fallback on failure is silent
-                      (X2)
-    backend           'morphons' (implemented) or 'imported' (stub, X2)
+                      (X2). Ignored when backend='imported'
+    backend           'morphons' or 'imported', both implemented (X2)
+    imported_path     Path to a DICOM deformable registration object, read
+                      via OpenTPS's readDicomVectorField. Required when
+                      backend='imported', ignored otherwise
 
     Frozen and hashable by content rather than by identity, so the same
     settings passed twice produce the same cache key regardless of which
@@ -34,6 +41,7 @@ class DIRSettings:
     n_processes: int = 1
     try_gpu: bool = False
     backend: str = 'morphons'
+    imported_path: str = None
 
     def __post_init__(self):
         if self.base_resolution <= 0:
@@ -42,6 +50,11 @@ class DIRSettings:
             raise ValueError(f"n_processes must be >= 1, got {self.n_processes}")
         if self.backend not in ('morphons', 'imported'):
             raise ValueError(f"backend must be 'morphons' or 'imported', got '{self.backend}'")
+        if self.backend == 'imported' and self.imported_path is None:
+            raise ValueError(
+                "backend='imported' requires imported_path, the DICOM "
+                "deformable registration file to read; none given."
+            )
 
     def content_hash(self) -> str:
         """Short hash of the settings, for the DVF cache key (extractor 6, 13.1).

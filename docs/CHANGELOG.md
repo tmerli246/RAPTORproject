@@ -23,6 +23,72 @@ No other document has been renumbered and the rule stands for the other three.
 
 ---
 
+# Extractor 5.8, the importing DVF backend's conversion path
+
+Extractor 5.7 to **5.8**. Evaluator, road and allocator unchanged. No
+supervisory input. `get_dvf(backend='imported')` implemented: reads via
+`readDicomVectorField`, converts the result into a `Deformation3D`, and
+resamples onto the working grid the same way the Morphons backend does.
+`DIRSettings` gains `imported_path`, required and validated at
+construction when `backend='imported'`. 3 tests in `test_adapters.py`,
+replacing the single stub test the backend had, passing against both the
+public OpenTPS release and the project's own checkout.
+
+**What was assumed compatible was not, found by reading rather than
+trusting the design document's own framing.** X2 described the two
+backends as sitting "behind the same interface". `readDicomVectorField`
+returns a `VectorField3D`; the Morphons backend returns a `Deformation3D`.
+The two classes share no method for applying the field to an image:
+`Deformation3D.deformImage(image)` takes an image object, `VectorField3D.warp(data)`
+takes a bare array, and neither class is a subclass of the other,
+confirmed by listing both classes' methods directly on 16 September 2026.
+Returning the `VectorField3D` as `get_dvf`'s result would have broken
+`warp_bed` and every other caller the first time the imported backend was
+used, with an `AttributeError` two calls away from the actual cause,
+exactly the failure shape this project's own conventions exist to avoid.
+
+**The fix is a conversion, not a redesign.** `Deformation3D().initFromDisplacementField(vector_field)`
+reads the `VectorField3D`'s own `_origin`, `_spacing` and `_angles` and
+produces a `Deformation3D` that supports `deformImage` exactly as the
+Morphons path does. Verified in two steps: first against a synthetic
+`VectorField3D` built directly, then against a synthetic DICOM deformable
+registration object, `tests/dicom_builders.py`'s new `write_dvf`, built
+the same way extractor 16's other synthetic DICOM tests are, with a known
+uniform displacement recovered correctly after conversion, resample and
+application.
+
+**What remains genuinely blocked is narrower than "the imported backend"
+as X2 previously described it.** The conversion and the resample are
+implemented and tested; only the read of a real RayStation-exported file
+is not, since no such file has been inspected. Registered as a new
+assumption, **X12**, distinct from X7 (scenario doses) and X9 (general
+export conventions), since neither named this specific DICOM object.
+`get_dvf`'s docstring had, in an earlier draft of this round, attributed
+the blocked half to X7 and X9; corrected before this round closed, since
+citing the wrong assumption ID would have sent a future reader looking in
+the wrong place for what is actually unverified.
+
+| Change | Where |
+| --- | --- |
+| Section 6.1 rewritten: both backends stated as implemented; new paragraph on the interface mismatch and its conversion fix; the code's shown signature corrected to include `working_spacing`, missing since an earlier round | extractor 6.1 |
+| X2 rewritten: the imported backend's implementation and test status added | extractor 14 |
+| X12 added: whether RayStation exports the deformable registration object at all, distinct from X7 and X9 | extractor 14 |
+
+**Code and tests.**
+
+| File | Change |
+| --- | --- |
+| `extractor/records.py` | `DIRSettings.imported_path` added, validated when `backend='imported'` |
+| `extractor/adapters.py` | `get_dvf`'s imported branch implemented; `readDicomVectorField` imported |
+| `tests/dicom_builders.py` | `write_dvf` added: a minimal synthetic DICOM deformable registration object |
+| `tests/test_adapters.py` | 3 tests replacing the single stub test: path required at construction, a real synthetic file read and applied correctly, `moving` confirmed unused |
+
+**Open, added.** None new: X12 restates what was already true of the
+imported backend, now precisely scoped to the one untested half rather
+than the whole.
+
+---
+
 # Extractor 5.7 and evaluator 6.6, the remaining minor items
 
 Extractor 5.6 to **5.7**, evaluator 6.5 to **6.6**. Road and allocator

@@ -228,3 +228,50 @@ def write_proton_plan(tmp_dir: str, name: str, *, n_spots: int = 2,
     p = os.path.join(tmp_dir, name)
     ds.save_as(p, enforce_file_format=True)
     return p, ds.SOPInstanceUID
+
+
+def write_dvf(displacement_xyz, grid, spacing, origin, tmp_dir: str, name: str):
+    """One minimal DICOM deformable registration object.
+
+    displacement_xyz : (3,) sequence, mm, a uniform displacement applied
+        everywhere on the grid. Uniform rather than spatially varying,
+        matching this project's own preference for hand-checkable fields
+        (evaluator design 11.6): a converted, resampled field carrying a
+        known uniform displacement is trivial to verify against by eye.
+    grid : (nx, ny, nz)
+
+    Returns
+    -------
+    path : str
+    """
+    file_meta = FileMetaDataset()
+    file_meta.MediaStorageSOPClassUID = '1.2.840.10008.5.1.4.1.1.66.3'
+    file_meta.MediaStorageSOPInstanceUID = generate_uid()
+    file_meta.TransferSyntaxUID = ExplicitVRLittleEndian
+
+    ds = Dataset()
+    ds.file_meta = file_meta
+    ds.SOPClassUID = file_meta.MediaStorageSOPClassUID
+    ds.SOPInstanceUID = file_meta.MediaStorageSOPInstanceUID
+    ds.Modality = 'REG'
+    ds.SeriesInstanceUID = generate_uid()
+    ds.PatientID, ds.PatientName = 'TEST', 'Test^Patient'
+
+    nx, ny, nz = grid
+    field = np.zeros((3, nx, ny, nz), dtype=np.float32)
+    for axis in range(3):
+        field[axis, ...] = float(displacement_xyz[axis])
+
+    grid_ds = Dataset()
+    grid_ds.ImagePositionPatient = [float(v) for v in origin]
+    grid_ds.GridResolution = [float(v) for v in spacing]
+    grid_ds.GridDimensions = [nx, ny, nz]
+    grid_ds.VectorGridData = field.tobytes(order='F')
+
+    reg_seq_ds = Dataset()
+    reg_seq_ds.DeformableRegistrationGridSequence = [grid_ds]
+    ds.DeformableRegistrationSequence = [reg_seq_ds]
+
+    p = os.path.join(tmp_dir, name)
+    ds.save_as(p, enforce_file_format=True)
+    return p

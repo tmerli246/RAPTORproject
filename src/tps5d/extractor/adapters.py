@@ -18,6 +18,7 @@ import numpy as np
 from opentps.core.data import DVH
 from opentps.core.data.images import Deformation3D
 from opentps.core.processing.registration.registrationMorphons import RegistrationMorphons
+from opentps.core.io.dicomIO import readDicomVectorField
 
 from .records import DIRSettings, WorkingGrid, CropBounds
 
@@ -65,8 +66,29 @@ def get_dvf(*, moving, fixed, settings: DIRSettings, working_spacing):
 
     settings.backend selects the implementation:
       'morphons'  computed here, via RegistrationMorphons
-      'imported'  a stub (X2). Raises NotImplementedError until the export
-                  conventions are known
+      'imported'  read via OpenTPS's readDicomVectorField from
+                  settings.imported_path, then converted into a Deformation3D
+                  (below). `moving` is not used on this path: the field comes
+                  entirely from the file, and is accepted only so callers do
+                  not need a different call shape per backend. `fixed` is
+                  still used, for the resample onto working_spacing that
+                  both backends share
+
+    **The imported backend's two halves have different status.** Reading a
+    real RayStation export remains untested: whether RayStation exports a
+    deformable registration object at all, and in what conventions, is X12
+    and closes only on a real export. The conversion from what
+    `readDicomVectorField` returns, a `VectorField3D`, into the
+    `Deformation3D` this function's callers require, is not blocked on
+    that: confirmed by reading both classes' method sets on 16 September
+    2026 that they do not share an interface (`Deformation3D.deformImage`
+    takes an image object; `VectorField3D.warp` takes a bare array; neither
+    class is a subclass of the other), and verified, first with a synthetic
+    `VectorField3D` and then with a synthetic DICOM deformable registration
+    file built the same way extractor 16's other synthetic DICOM tests are,
+    that `Deformation3D().initFromDisplacementField(vf)` bridges the two
+    correctly. That conversion is implemented and tested here now; only the
+    read of a real file is untested.
 
     The field this returns is NOT yet on `working_spacing`: Morphons' own
     grid is bounded by two floors, base_resolution and the fixed image's
@@ -74,7 +96,8 @@ def get_dvf(*, moving, fixed, settings: DIRSettings, working_spacing):
     function resamples explicitly onto working_spacing before returning, so
     that no caller relies on deformImage's own silent resample (Deformation3D
     logs "Image and field dimensions do not match" and proceeds regardless,
-    which is exactly the implicit behaviour extractor 3.4 rules out).
+    which is exactly the implicit behaviour extractor 3.4 rules out). The
+    imported path resamples the same way, for the same reason.
 
     Parameters
     ----------
@@ -88,9 +111,17 @@ def get_dvf(*, moving, fixed, settings: DIRSettings, working_spacing):
     Deformation3D, on `fixed`'s grid at `working_spacing`.
     """
     if settings.backend == 'imported':
-        raise NotImplementedError(
-            "imported DVF backend is a stub pending known RayStation export "
-            "conventions (X2, X7)")
+        vector_field = readDicomVectorField(settings.imported_path)
+
+        field = Deformation3D()
+        field.initFromDisplacementField(vector_field)
+
+        field.resample(
+            spacing=working_spacing,
+            gridSize=fixed.gridSize,
+            origin=fixed.origin,
+        )
+        return field
 
     reg = RegistrationMorphons(
         fixed, moving,
