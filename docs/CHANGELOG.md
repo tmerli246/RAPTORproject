@@ -1,27 +1,255 @@
 # Version history
 
-Consolidated version history for the four design documents, separated from the
-specification so that superseded material does not compete with current
-specification during retrieval and reading.
+Consolidated version history for the four design documents, kept separate from the specification so that superseded material does not compete with the current design during reading and retrieval.
 
-**Reading rule.** Assumption and open-decision identifiers cited in entries for
-superseded versions refer to the numbering *of that version*. Where an identifier
-has since been reused for different content, this is marked inline. The live
-registers are authoritative: allocator Sections 11, 11.1 and 11.2 (assumptions)
-and 12 (open decisions), evaluator Sections 10, 10.1 and 10.2, road Section 4.8
-(open problems). Where an amendment subsection conflicts with the original row
-above it, the amendment governs, and the later amendment governs the earlier.
+**Reading rule.** Identifiers cited in an entry refer to the numbering of that version. The live registers are authoritative: allocator Section 11 (A), evaluator Section 10 (E), extractor Section 13 (X), and allocator Section 12 for open decisions. Retired identifiers are never reused; the cleanup entry below archives the last text of each.
 
-**Section numbering.** Removing the history sections leaves numbering holes at the
-end of each specification document. Existing numbers were preserved rather than
-compacted, so cross-document pointers of the form "allocator 10.5" remain valid.
+**Section numbering.** Each document was renumbered once in the cleanup round of 29 September 2026; the mapping is in that entry. Pointers made against earlier versions use the old numbering. `extractor_design.md` was also renumbered at version 5.0, with its own mapping in that round's entry. Earlier entries speak of numbering being preserved and of amendment subsections (allocator 11.1, 11.2; evaluator 10.1, 10.2; road 4.8 as an open problems register); those structures no longer exist.
 
-**One documented exception.** `extractor_design.md` was renumbered at version 5.0
-to follow pipeline order, so pointers of the form "extractor N" made against
-versions 1 to 4.3 do not carry over. The mapping is in that round's entry below.
-No other document has been renumbered and the rule stands for the other three.
+**Full text of superseded versions** is recoverable from git. The entries record what changed and why, and archive retired rows and deleted specification text that may be needed again.
 
 ---
+
+# Cleanup round: road 7.1, allocator 7.1, evaluator 6.7, extractor 5.9
+
+29 September 2026. Documentation only; no code changed, and the tag stays `design-v6.3`. Source: a full review of all four documents against each other and against the reference paper (Borderías-Villarroel et al., Radiother Oncol 198 (2024) 110389), merged with Tommaso's own review and his answers to the questions it raised.
+
+## Rules applied
+
+1. Documents state the design as it is and why. A previous version appears only where it explains a current choice; a rejected alternative stays with its reason.
+2. Findings are written as finding, consequence, choice, without the account of how they were found.
+3. One assumptions register per document; amendment subsections merged.
+4. Deferred and retired material deleted from the documents; the specification text worth keeping is archived below.
+5. The OpenTPS refactor is not a design input; text about it removed.
+6. Module documents list only open decisions; closed decisions are stated in the section they govern.
+7. Each document renumbered once.
+
+## Decisions taken in this round
+
+| Item | Decision | Owner |
+|---|---|---|
+| A3 / decision 11 | Photon adaptation is rationed; confirmed by Sterpin, September 2026. Decision 11 closed | Supervision |
+| Block structure | The modelled workflow is systematic online adaptation: one replan per block stands for daily replans. A25 was already written on this reading; A16, A23 and decision 20 were written on the offline reading and are brought in line | Candidate |
+| Decision 20 | Dropped, with the per-replan threshold Δτ\*_replan. Under the online reading, charging per replan prices a workflow A25 excludes, and the reference study charges per fraction | Candidate |
+| First block (A23, decision 21) | The convention is kept. Under the online reading it favours the non-adapted arms, not the reduced-margin arms. It is a declared limitation; recomposing with the first block assigned the second block's dose investigates it without new plans | Candidate |
+| Rescue workflow | The acceptance criterion (7b) is fixed before plan generation. The judgement and every rescue are made in RayStation at plan generation and recorded in the manifest. The evaluator re-applies the criterion as a verification; RayStation governs where they disagree. Rescue plans use the same template and process as adapted replans | Candidate |
+| Worst-case evaluation | Descriptive only: recorded per plan and block, counted per arm, never a rescue trigger | Candidate |
+| Central hypothesis | Narrowed to the dose-redistribution and capacity channels. The robustness effects of fraction number are declared as not modelled, with their bias direction (road 3.4, evaluator E22) | Candidate |
+| A5 | Split: photon schedules rest on the protocol; proton hypofractionation is investigational, simulated for every patient, and its tumour equivalence is an assumption | Candidate, from the clinical position stated by Tommaso |
+| Decision 10 | Reframed as a choice of model family. Models without a fractionation term are evaluated on mean EQD2 at a declared α/β, with the approximation stated; never on physical dose across schedules. No longer a blocker | Candidate |
+| Site criteria | Ordered: clinical doubt between schedules and planning with the clinicians; repeat imaging; endpoint models | Candidate |
+| Peak occupancy | Re-solve removed from the road. A2 restated: the horizon constraint is exact for the mean load and relaxes daily feasibility. A daily-feasibility simulation is mentioned as available, not planned | Candidate |
+| n_b | Derived from repeat-image acquisition dates; set by hand where unclear and tagged `assumed` (E21) | Candidate |
+| Hypofractionated first fraction | Delivered on the pCT plan, like every first block. Per-fraction blocks then need five plans per adapted arm and nineteen per patient | Candidate |
+| Rescue attribution | Kept as inherited from the reference study. The paper's sentence on planned photon dose means no delivery reconstruction; rescue was applied as standard practice, confirmed by Sterpin, its corresponding author. Recorded in STATE so it is not reopened | Supervision |
+| Synthetic generator | The dose-level generator described in extractor 11 is not built; the end-to-end test covers the composition path. `synth.py` is described as it is, in allocator 5.5 | Candidate |
+| Deferred material | Deleted from the documents rather than moved to a separate file; archived below where it is specification | Candidate |
+
+## Corrections of substance
+
+**The step-ratio threshold is conditional on the acceptance criterion.** Road 5.10, allocator 8.2, evaluator 6.3, road F.3 and STATE 7 stated that a rescue of XT-NA shifts all seven options by a per-patient constant, leaving Δτ\* and pen\* unaffected. XT-NA is both the reference and one of the options: if its NTCP improves by c, the other six fall by c in the ΔNTCP frame while XT-NA stays at zero, which is not a common shift of all seven. The six non-reference options keep their mutual ordering, so pen\* is invariant. But m becomes m − c with a unchanged, so Δτ\* = τ_0 · a/(m − c) moves; with the photon outside option, m − w is invariant while w > 0, and Δτ\* moves whenever w = 0, including at C_XT = 0. A rescue of PT-NA changes both m and a. The text now states the conditionality (road 5.10, allocator 8.2, evaluator 6.3).
+
+**Two inverted sentences in allocator 6.5 (now 6.2).** The pen\* example read "requires a biological penalty above 1.9 points before the standard adapted arm is displaced"; by the paragraph's own rule the arm is displaced unless the penalty exceeds 1.9 points. Corrected. The per-replan sentence ("PT-NA standard is essentially never displaced by its own adaptation step") was also inverted; it is deleted with the formula.
+
+**Allocator 5.1 stated the version 6 feasibility argument.** "The entitlement is not unconditional ... Feasibility is therefore conditional" contradicted Sections 8.2 to 8.6. Replaced by the unconditional statement.
+
+**Plan counts.** With the first fraction of a per-fraction hypofractionated schedule delivered on the pCT plan, an adapted arm needs five plans, not six; the schedule alone eleven or twelve, not fourteen; a patient nineteen, not twenty-two. The "six plans, 43 per cent" saving from dropping the unchanged-margin adaptive arms was a single-schedule figure; with two schedules it is eight to twelve plans per patient. Allocator decisions 23 and 26 quoted version 6 counts (sixteen and twenty-two).
+
+**The 18.8 against 19 min comparison.** The paper reports no statistical test: "stops being significant" is its wording for where the OAPT-2 mm curve meets the NA-Clinic line in Fig. 3A, at scenario S5 (+19 min). The comparison with the closed-form break-even is therefore like with like, and only the wording changes. The scenario increments are cited as the paper reports them, S1 +2.4 min and S2 +5.7 min, replacing 2.7 and 5.9, which had been recomputed from capacity.
+
+**Evaluator 5.1** described composition as a sum weighted by fraction counts, although BED_b already contains n_b; read literally, that double-counts. Corrected. **Evaluator E12** (amendment at 10.1) described the adapted photon arm's dose as recomputed on each repeat image, which is the non-adapted construction. Corrected.
+
+**The manifest check cannot place recomputed doses.** For a non-adapted plan recomputed on a repeat image, the referenced plan is the pCT plan, so the plan's frame of reference is the pCT's on every block, and the check could not tell block 2 from block 3 of the same arm. The manifest gains `dose_image_uid`, checked against the dose object's own frame of reference or referenced image once decision 30 fixes the export route (extractor 4, X8). X7 extends to recomputed doses.
+
+**A28's bias direction** was stated as conservative for the proton claim. Omitting planning labour favours adaptation, since adapted arms replan at every block; the effect on the proton-versus-photon comparison depends on the relative rescue rates of XT-NA and PT-NA and is not signed.
+
+**The Config illustrations of allocator 6.1 and 6.3** used version 5 occupancy (block 1 uncharged). Under per-course charging, two adapted patients use 120 of 130 min, not 100, and the Config 2 cohort (150 min) is infeasible. Deleted with the rest of the configuration discussion.
+
+**Road 5.4** quoted magnitudes (11 per cent, 0.16 percentage points, "within one per cent") that allocator 5.3 had marked as superseded, and said the ranking convention was not yet made although decision 14 had resolved it. Replaced.
+
+**Evaluator 5.2** said the Pareto reduction is applied in the evaluator while evaluator 9 said the evaluator computes no dominance; it is applied in the allocator.
+
+## New identifiers
+
+| ID | Where | Content |
+|---|---|---|
+| E21 | evaluator 10 | n_b from acquisition dates, hand-set where unclear and tagged `assumed` |
+| E22 | evaluator 10 | No per-fraction setup error and no intrafraction motion in the dose model |
+| E23 | evaluator 10 | The RayStation acceptance judgement governs; the evaluator's check is a verification |
+| 28 | allocator 12 | Clinical and reduced margins for both modalities, by conversion |
+| 29 | allocator 12 | Source of contours on the repeat images |
+| 30 | allocator 12 | RayStation route for recomputing a plan on a repeat image |
+| 31 | allocator 12 | Photon protocol options at the chosen site, and whether the eligibility flag also constrains XT-A |
+
+## Rows rewritten, old sense in one line
+
+| ID | Was | Now |
+|---|---|---|
+| A2 | Retired as a distinct check; "exact under Little's law" | Exact for the mean load; daily feasibility relaxed, out of scope |
+| A5 | Protocol-sanctioned schedules equivalent, all arms | Photon arms on protocol; proton hypofractionation assumed |
+| A12 | Pending supervisory confirmation | Confirmed |
+| A16 | Conservative: overstates the cost of adaptation | Exact for the modelled online workflow |
+| A21 | Expected to hold, not guaranteed | Structural |
+| A23 | Favours margin reduction; bounding is decision 21 | Favours the non-adapted arms; declared limitation |
+| A24 | Non-adapted arm never adapts (amended at version 7) | Merged: reactive adaptation at clinical margin |
+| A28 | Conservative for the proton claim | Favours adaptation; proton-versus-photon effect not signed |
+| E6 | Pending supervisory confirmation | Confirmed |
+| E12, E15 | Amended twice in subsections | Single current rows |
+| X2 | Computed in OpenTPS "by default" while 6.1 said the choice is not made | Morphons is the backend in use; the imported RayStation field is kept for continuity and the difference measured |
+
+## Retired rows, archived
+
+Allocator:
+
+| ID | Assumption | Status | Risk |
+|---|---|---|---|
+| A13 | Occupancy depends only on the number of adapted blocks, not on which blocks | Follows from the time model. Retired at version 6: no adaptation vector, occupancy per course | If false, the dominance collapse in Section 6.3 does not hold |
+| A14 | Margin level is determined by the adaptation vector: an adapted block carries the reduced-margin plan on its repeat image, a non-adapted block the clinical-margin pCT plan | Follows from the planning workflow, with a single adaptive margin level adopted at supervision. Superseded by A25 at version 6 | Robustness contributes no independent degree of freedom. Removes the conservative fallback under coverage failure |
+| A18 | Photon adaptation is decided per block, on the same block structure as protons | Design decision, symmetric with the proton arm. Superseded at version 6: course-level decision | If photon adaptation is in practice an all-or-nothing course-level decision, the photon chain has two rungs rather than B + 1 and intermediate photon options are not reachable |
+| A22 | A patient whose reference arm is not assignable receives their cheapest assignable option under the heuristic policies, and the referral threshold is still applied to ΔNTCP against the reference arm | Decision of the doctoral candidate. Void by construction at version 7 (decision 17) | The heuristics are approximate for such patients: one whose default arm is worse than the reference is not referred on that account alone |
+| A27 | XT-NA is free on both budgets under either fractionation schedule, so a patient may hold two zero-cost options | Follows from A3 and from the fractionation axis. Retired at version 7: one XT-NA schedule per patient (A32) | Any positive utility on a free arm enters the population mean at zero capacity cost, and that component is not a result about capacity |
+
+Evaluator:
+
+| ID | Assumption | Status | Risk |
+|---|---|---|---|
+| E7 | Occupancy depends only on the number of adapted blocks, not on which. Stated per resource | Follows from the time model. Retired with A13 | If block-dependent, the dominance collapse of Section 5.2 does not hold |
+| E9 | Margin level is determined by the adaptation vector: adapted blocks carry the reduced-margin plan on their repeat image, non-adapted blocks the clinical-margin pCT plan | Mirrored A14. Superseded by E15 | A free crossing would generate undeliverable plans and an inflated strategy count. Removes the conservative fallback under coverage failure |
+| E11 | Photon adaptation is decided per block, on the same block structure as protons | Mirrored A18. Superseded | If photon adaptation is in practice course-level, the photon group has two members rather than B + 1 and the intermediate photon options are unreachable |
+
+Allocator tests: T6 (void at version 6: the dominance collapse over adaptation counts no longer exists); T12 (void at 6.2: a mixed course is unrepresentable in the record, so no test could fail); T13 (absorbed into T1 at 6.2: no version 5 per-block occupancy survives to compare against).
+
+## Renumbering
+
+**Allocator 7.0 → 7.1.**
+
+| Old | New |
+|---|---|
+| 1 to 5.4 | unchanged |
+| extractor 11 (synthetic cohorts) | 5.5, rewritten to describe `synth.py` |
+| 6 Configuration space; 6.1 to 6.4 (Config 0, 1, 2, 3) | 6 Configuration and the step-ratio threshold; 6.1 Adopted configuration (one table) |
+| 6.5 The step-ratio threshold | 6.2 |
+| 7 to 9.1 | unchanged |
+| 10.1, 10.2 | unchanged |
+| 10.3 The diagnostic that does exist | deleted (retired at 6.2) |
+| 10.4 Schedule equivalence | 10.3 |
+| 10.5 Adaptive fractionation, deferred | deleted, archived below |
+| 10.6 Anatomical site | 10.4 |
+| 11, 11.1, 11.2 | 11, one register |
+| 12, 12.1 | 12, open decisions only; 12.1 archived below |
+
+**Evaluator 6.6 → 6.7.**
+
+| Old | New |
+|---|---|
+| 1, 1.1 | unchanged |
+| – | 1.2 What the dose model does not represent (new) |
+| 2 to 9 | unchanged numbers |
+| 10, 10.1, 10.2 | 10, one register |
+| 11.1 | 11.1 The composition module |
+| 11.3, 11.5, 11.6 | 11.2 What is tested |
+| 11.2, 11.5 "Not yet done" | 11.3 What is not built, and why |
+| 11.6 secondary finding (axis transpose) | 11.4 A risk for real data |
+| 11.4 (the 4.2 illustration as golden test) | deleted |
+
+**Extractor 5.8 → 5.9.**
+
+| Old | New |
+|---|---|
+| 1 to 3.4 | unchanged |
+| 16 and the "Implemented at" notes | 3.4 (reader failure modes, as a table) and 3.5 Modules and tests |
+| 4 to 10 | unchanged; 9 retitled "ROI naming and rasterisation" |
+| 11 Synthetic cohorts | moved to allocator 5.5 |
+| 12 Schema | 11 |
+| 13, 13.1, 13.2 Provenance | 12, 12.1, 12.2 |
+| 14 Assumptions register | 13 |
+| 15 Open items | 14, open items only |
+| 16 DICOM ingest | folded into 3.4 and 3.5 |
+
+**Road 7.0 → 7.1.**
+
+| Old | New |
+|---|---|
+| 0 to 4.3 | unchanged; 3.4 rewritten |
+| 4.4 No mid-course change; 4.5 Oracle framing | 4.4 Prescription-time choice and the oracle framing |
+| 4.6 Control arms | deleted |
+| 4.7 Information revelation | deleted, archived below |
+| 4.8 Can a mid-course change be evaluated? | row 3 becomes 4.5 Endpoint models and the fractionation correction; rows 1 and 2 archived below |
+| 4.9 Anatomical site | 4.6 |
+| 5.1 to 6 | unchanged numbers; isoeffect solver removed from 6 |
+| 7 | 7.1 α/β; 7.2 Declared limitations (new) |
+| Appendix F | deleted |
+
+The "open problems register" of road 4.8 no longer exists. Its item 2 (the switch axis) closed at version 6; item 3 is allocator decision 10; item 12 was never defined.
+
+## Deleted specification, archived
+
+Kept for a later publication or for reference. Text from the last version that carried it; the longer passages are condensed.
+
+### Allocator 10.5, receding-horizon reallocation (from 7.0)
+
+The pCT verdict on whether compression is achievable need not be final, because the geometry that blocks it may not persist. Tumor regression or a different bowel configuration at rCT1 may open a window that was closed at planning. The natural response is to re-ask the question at every rCT, in both directions, with dose accumulated continuously. The tractable implementation is receding-horizon reallocation: re-solve the same MCKP at each rCT, with each patient's remaining course as the decision and accumulated voxel-wise BED as carried state. Completed patients drop out; committed patients have reduced option sets. This preserves the entire formalism and adds a loop, not new mathematics. It is not optimal in the dynamic-programming sense, since it does not anticipate future options, but it is transparent and is what a clinic could implement.
+
+Four structural consequences, which the second publication inherits: costs are no longer known at time zero, since a patient's total occupancy depends on whether compression becomes available at a future rCT; sunk fractions constrain the future, since the dose already deposited is not reversible and every remaining option must respect the residual OAR budget; adaptation and compression may be complements or substitutes, since compression shortens the window for further degradation while carrying more dose per fraction and therefore a higher cost of residual geometric error; and the timing of compression trades capacity against flexibility, since compressing early frees more machine time while compressing late preserves more fractions with which to respond to a later change.
+
+### Allocator 6.5, per-replan accounting (from 7.0; decision 20, dropped)
+
+Section 9 charges the adaptation increment on every fraction of an adapted course, n_fx · Δτ in total. Charging it once per block instead, B · Δτ in total, replaces the entry step's competitor and rescales the threshold:
+
+Δτ\*_replan(w) = (n_fx / B) · τ_0 · a / (m − w)
+
+the closed form with the same w, scaled by n_fx / B > 1. At the reference-study magnitudes (τ_0 = 34.2 min, m = 6.9 per cent, a = 3.8 per cent) and B = 3 (ten fractions per block), the threshold moves from 18.8 to 188 min: under this convention PT-NA standard essentially never survives the hull. The cross-schedule comparison decision 20 turned on needs B for both schedules and is resolved by the allocator on the pooled proton axis, not by either schedule's threshold. Dropped because per-replan charging prices an offline workflow, which the online reading of the block structure (A25) excludes.
+
+### Allocator 12.1, treatments of the free hypofractionated arm (from 7.0; decision 18 closed with D)
+
+| Treatment | Where it acts | What is reported | Principal objection |
+|---|---|---|---|
+| A. Eligibility threshold ε | On the option set, before the solve | Population mean and eligible count as functions of ε | ε is a constant chosen by us, and it turns P3 from the optimum into the optimum of a constrained problem. It reintroduces on the fractionation axis the fixed cohort-level rule that this study exists to replace on the adaptation axis |
+| B. Uniform penalty π on every hypofractionated option | Inside the objective | Population mean and cohort composition as functions of π, beside λ_PT and λ_XT | π is unmeasured. It is preferable to A in that it compares against every alternative rather than against one nominated comparator, and it stays inside the price language |
+| C. Third budget row for photon stereotactic delivery (excluded) | On the constraint set | — | A five-fraction course releases linac time rather than consuming it, so this row would price a resource that is not actually scarce. Whatever scarcity exists on the photon side lies in the adaptation, already priced by C_XT |
+| D. Exogenous clinical eligibility (adopted, on XT-NA) | On the option set, before the solve | Eligible fraction of the cohort | Requires the protocol criteria for the indication from the clinical partners, and may leave the hypofractionated axis thinly populated |
+
+Supervision declined to layer A or B on top of D: hypofractionation is a clinical decision on the photon non-adapted arm and a capacity gain on the proton arms, and in neither case is a price on the schedule change wanted.
+
+### Allocator 6.2, Config 1 (from 7.0; rejected)
+
+*Naive mixing* plans a full proton course and a full photon course independently and delivers k fractions of one and N − k of the other. Each plan was optimised assuming it would deliver the whole treatment, so neither exploits the other. Utility is close to linear in k and the optimum collapses to k = 0 or k = N. This recovers patient selection with extra work.
+
+*Joint optimization* optimizes both fluence sets simultaneously against a shared BED objective (Fabiano et al.). Physical doses cannot be summed across modalities, because the quadratic term of the linear quadratic model depends on the dose per fraction each modality delivers to each voxel. The objective becomes quadratic in the fluence and the problem nonconvex. The optimal split depends on α/β per structure, which for abdomen is poorly constrained. Loizeau et al. found the population-level gain over patient selection to be small in head and neck when both modalities deliver the same dose per fraction; a substantial advantage appeared only with different doses per fraction. Combining RBE-weighted proton dose with photon physical dose in one BED expression carries an RBE assumption that becomes considerably worse under variable RBE.
+
+*A variant, speculative and dropped:* allocate modality by anatomical stability over time, delivering blocks where anatomy drifts with photons and stable blocks with protons. It may fail trivially if an offline-replanned proton block dominates a photon block on both robustness and dose.
+
+### Road 4.7, information revelation (from 7.0)
+
+If capacity were the only driver, the fractionation decision would belong at planning time. A mid-course switch is scientifically motivated only if information arrives during treatment that was unavailable at planning. The resulting tension, in which the value of information rises with switch time while the value of acting falls, is the natural successor to the timing axis of the reference study and is also the state definition that WP3 will later require.
+
+Candidate signals are filtered by four criteria: observable before the decision point, predictive of the endpoint, actionable within the remaining fractions, and reconstructible retrospectively from the available cohort. The fourth criterion is decisive and eliminates any signal requiring prospective biological sampling.
+
+| Candidate signal | Retrospectively available | Disposition |
+|---|---|---|
+| Accumulated organ biologically effective dose against planned | Yes, once accumulation is implemented | Primary state variable |
+| Plan degradation, loss of target coverage | Yes, per block, without accumulation | Primary state variable |
+| Anatomical drift, organ filling, weight loss | Yes | Primary state variable |
+| Tumor volume regression | Yes | Secondary. Weak predictor in abdomen |
+| Mid-treatment PET or diffusion weighted MRI | Only if present in the cohort | Stated extension |
+| Circulating biomarkers | No | Future work by construction |
+
+### Road 4.8 rows 1 and 2, and the isoeffect solver of road 6 (from 7.0)
+
+- The linear quadratic formalism can represent a mixed schedule: BED is additive over segments, and the fraction count enters only through the local dose per fraction.
+- The second segment of a switch cannot be computed in practice without a plan re-optimised on the anatomy at the switch point, plus deformable mapping and accumulation. A possible partial escape was uniform rescaling of a reference hypofractionated plan over the remaining fractions at preserved target EQD2.
+- Isoeffect solver, for a second segment of n_2 fractions matching a target BED deficit dBED_T: d_2 = ((α/β)_T / 2) · (√(1 + 4 · dBED_T / (n_2 · (α/β)_T)) − 1).
+
+### Extractor 11, synthetic cohorts (from 5.8; not built)
+
+Planned as a separate module sharing the evaluator's output schema, emitting dose metrics rather than utilities so that the NTCP layer and the composition path would be tested before real data; a first pass emitting ΔNTCP directly was allowed only to check the allocator for coding errors. Its methodological use was to construct concave and convex cohorts in the number of adaptations and measure the departure of the greedy from the exact solve. Not built: the adaptation count no longer exists, and the composition path is covered end to end on synthetic DICOM.
+
+## Code consequences
+
+None changed in this round. The documents now specify manifest columns, schema fields and evaluator behaviour the code does not have; they are listed in STATE Section 6 for the code review.
+
+---
+
 
 # Extractor 5.8, the importing DVF backend's conversion path
 
