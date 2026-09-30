@@ -13,7 +13,7 @@ from opentps.core.data._rtStruct import RTStruct
 
 from tps5d.extractor.manifest import (
     read_manifest, check_row_consistency, check_manifest, ManifestRow,
-    discover_and_load, _find_dicom_by_sop_uid,
+    discover_and_load, _find_dicom_by_sop_uid, check_dose_scale,
 )
 from dicom_builders import write_dose, write_proton_plan, write_struct
 
@@ -95,17 +95,52 @@ class TestReadManifest:
             read_manifest(str(path))
 
     def test_rescue_rows_are_ordinary_extra_rows(self, tmp_path):
-        """The row count is not fixed in advance (extractor design 4):
-        two rows for the same block, one planned and one rescue, must both
-        read cleanly.
+        """The row count is not fixed in advance (extractor design 4): a
+        block may carry a rejected recomputation and its rescue as two rows,
+        and both must read cleanly.
         """
         path = _write(tmp_path, "m.csv", [
             "plan-1,doses/plan-1.dcm,0,PT-NA,planned,frame-1,25,2.0",
-            "plan-1-rescue,doses/plan-1-rescue.dcm,0,PT-NA,rescue,frame-2,25,2.0",
+            "plan-1,doses/plan-1-b1.dcm,1,PT-NA,planned,frame-1,25,2.0",
+            "plan-1-rescue,doses/plan-1-rescue.dcm,1,PT-NA,rescue,frame-2,25,2.0",
         ])
         rows = read_manifest(path)
-        assert len(rows) == 2
-        assert rows[1].role == 'rescue'
+        assert len(rows) == 3
+        assert rows[2].role == 'rescue'
+
+    def test_reads_the_full_header_and_resolves_paths_against_the_manifest(self, tmp_path):
+        """Extractor design 4 columns; relative paths resolve against the
+        manifest's directory, absolute ones are kept; a UTF-8 byte order mark
+        (PowerShell 5.1 `Out-File -Encoding utf8`) does not break the header."""
+        header = ("plan_uid,path,block_index,arm,role,source_image_uid,dose_image_uid,"
+                  "n_fx,dose_per_fx_gy,accept_nominal,accept_robust")
+        absolute = str(tmp_path / "abs.dcm")
+        path = tmp_path / "m.csv"
+        path.write_text("\n".join([
+            header,
+            "p1,doses/a.dcm,0,PT-NA,planned,img0,img0,25,2.0,1,",
+            f"p1,{absolute},1,PT-NA,planned,img0,img1,25,2.0,0,1",
+        ]) + "\n", encoding = 'utf-8-sig')
+        rows = read_manifest(str(path))
+        assert rows[0].path == os.path.normpath(str(tmp_path / "doses" / "a.dcm"))
+        assert rows[1].path == absolute
+        assert (rows[0].dose_image_uid, rows[0].accept_nominal, rows[0].accept_robust) == ('img0', True, None)
+        assert (rows[1].dose_image_uid, rows[1].accept_nominal, rows[1].accept_robust) == ('img1', False, True)
+
+    @pytest.mark.parametrize("lines, message", [
+        (["p1,a.dcm,0,PT-NA,planned,f,0,2.0"], "n_fx=0"),
+        (["p1,a.dcm,0,PT-NA,planned,f,25,nan"], "dose_per_fx_gy=nan"),
+        (["p1,a.dcm,0,PT-NA,planned,f,,2.0"], "line 2"),
+        (["p1,a.dcm,0,PT-NA,planned,f,25"], "expected 8 fields"),
+        (["p1,a.dcm,0,PT-NA,planned,f,25,2.0", "p1,b.dcm,0,PT-NA,planned,f,25,2.0"], "already has a dose"),
+        (["p1,a.dcm,0,PT-NA,planned,f,25,2.0", "p1,b.dcm,2,PT-NA,planned,f,25,2.0"], "without a gap"),
+        (["p1,a.dcm,0,PT-NA,rescue,f,25,2.0"], "block 0 cannot carry a rescue"),
+        (["p1,a.dcm,0,PT-A,planned,f,25,2.0", "p2,b.dcm,1,PT-A,rescue,f,25,2.0"], "adapted arm PT-A cannot carry a rescue"),
+        (["p1,a.dcm,0,PT-NA,planned,f,25,2.0", "p1,b.dcm,1,PT-A,planned,f,25,2.0"], "is PT-A"),
+    ])
+    def test_rejects_a_structurally_invalid_manifest(self, tmp_path, lines, message):
+        with pytest.raises(ValueError, match = message):
+            read_manifest(_write(tmp_path, "m.csv", lines))
 
 
 class TestCheckRowConsistency:
@@ -147,6 +182,20 @@ class TestCheckRowConsistency:
         assert 'frameOfReferenceUID' in msg
 
 
+class TestCheckDoseScale:
+
+    def _row(self):
+        return ManifestRow('plan-1', 'x', 0, 'PT-A', 'planned', 'frame-1', (25, 2.0))
+
+    def test_a_plan_total_dose_is_caught_and_a_cold_plan_is_not(self):
+        check_dose_scale(self._row(), 1.0)          # half the prescription: cold, but per fraction
+        check_dose_scale(self._row(), 2.1)
+        with pytest.raises(ValueError, match='ratio of 25.00'):
+            check_dose_scale(self._row(), 50.0)     # the plan total, 25 x 2 Gy
+        with pytest.raises(ValueError, match='ratio of 0.04'):
+            check_dose_scale(self._row(), 0.08)     # divided twice
+
+
 class TestCheckManifest:
 
     def test_collects_problems_across_rows(self):
@@ -158,7 +207,7 @@ class TestCheckManifest:
             ManifestRow('plan-1', 'x', 0, 'PT-A', 'planned', 'frame-1', (25, 2.0)),
             ManifestRow('plan-2', 'y', 1, 'PT-A', 'planned', 'frame-2', (25, 2.0)),
         ]
-        loaded = {'plan-1': (dose1, plan1, struct1), 'plan-2': (dose2, plan2, struct2)}
+        loaded = {('plan-1', 0): (dose1, plan1, struct1), ('plan-2', 1): (dose2, plan2, struct2)}
 
         with pytest.raises(ValueError, match='plan-2'):
             check_manifest(rows, loaded)
@@ -166,7 +215,7 @@ class TestCheckManifest:
     def test_passes_when_every_row_is_consistent(self):
         dose1, plan1, struct1 = _aligned_triple(uid='plan-1', frame='frame-1')
         rows = [ManifestRow('plan-1', 'x', 0, 'PT-A', 'planned', 'frame-1', (25, 2.0))]
-        loaded = {'plan-1': (dose1, plan1, struct1)}
+        loaded = {('plan-1', 0): (dose1, plan1, struct1)}
         check_manifest(rows, loaded)  # no raise
 
     def test_reports_missing_loaded_triple(self):
