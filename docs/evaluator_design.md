@@ -1,6 +1,6 @@
 # Evaluation Module
 
-Version 6.7. Version history is in `CHANGELOG.md`. Project status and open items are in `STATE.md`.
+Version 6.8. Version history is in `CHANGELOG.md`. Project status and open items are in `STATE.md`.
 
 ## 1. Purpose and scope
 
@@ -52,7 +52,7 @@ The evaluator builds each patient's strategy space, and construction precedes ev
 
 - block-level physical dose per plan, masked to the ROI union;
 - the export manifest: arm, block, role (planned or rescue), schedule, the image each plan was generated on and the image its dose is computed on, and the RayStation acceptance judgement, which together fix each arm's plan sequence (extractor 4);
-- deformation vector fields keyed by image pair and DIR settings hash;
+- deformation vector fields keyed by image pair, DIR settings hash and working grid;
 - per-block target metrics per plan, and the outcome of robust evaluation per plan and block as recorded at plan generation;
 - ROI masks and grid geometry under canonical names;
 - clinical covariates required by the active NTCP models, and the XT-NA eligibility flag;
@@ -67,7 +67,7 @@ The evaluator builds each patient's strategy space, and construction precedes ev
 |---|---|
 | u | Utility. Union ΔNTCP against XT-NA |
 | dntcp_k | Per-endpoint ΔNTCP, for reporting |
-| ntcp_k | Absolute per-endpoint NTCP, for reporting and for the internal solve |
+| ntcp_k | Absolute per-endpoint NTCP, for reporting and for the allocator's dynamic-program cross-check |
 | tau_pt | Proton machine occupancy per fraction, minutes. Zero for photon strategies |
 | tau_xt | Photon adaptation time per fraction, minutes. Zero for proton strategies and for XT-NA. Charged on every fraction of an adapted arm |
 | n_fx | Fraction count |
@@ -82,7 +82,7 @@ The allocator consumes u, ntcp_k, tau_pt, tau_xt, n_fx and admissible per (patie
 
 **Why occupancy is emitted per resource.** The two costs are consumed by disjoint groups of arms, so a single occupancy field would have to be read together with the modality to know which budget it draws on. Two fields make the resource explicit and let the allocator treat the option set as two chains without inspecting the modality string. The photon field carries the adaptation increment only, since photon delivery is not a constrained resource (allocator 5.1).
 
-**Internal representation of utility.** Each patient receives exactly one strategy, so the sum of reference NTCP over the cohort is a constant. Maximising the sum of ΔNTCP and minimising the sum of absolute NTCP are therefore the same problem. The evaluator emits both, the allocator solves on absolute NTCP, and ΔNTCP is used for reporting and for the no-harm diagnostic. This removes a class of sign and baseline errors.
+**Internal representation of utility.** Each patient receives exactly one strategy, so the sum of reference NTCP over the cohort is a constant. Maximising the sum of ΔNTCP and minimising the sum of absolute NTCP are therefore the same problem. The evaluator emits both. The allocator's integer, linear and greedy solvers maximise the sum of ΔNTCP, and its dynamic-program cross-check minimises the sum of absolute NTCP; allocator T5 asserts that the two give identical allocations. ΔNTCP is also used for reporting and for the no-harm diagnostic.
 
 ## 4. Accumulation ordering
 
@@ -221,7 +221,6 @@ Model(
     site       = 'pelvis',
     kind       = 'lkb',
     roi        = 'Rectum',
-    metric     = ('gEUD', 0.09),   # n; the power-mean exponent is a = 1/n
     alpha_beta = 3.0,
     params     = {'td50': 76.9, 'm': 0.13, 'n': 0.09},
     covariates = [],
@@ -230,7 +229,7 @@ Model(
 )
 ```
 
-This is the one populated record: a pelvic model used to exercise the mechanism. The abdominal endpoint models depend on the site (allocator decision 19) and on the model family (allocator decision 10).
+This is the one populated record: a pelvic model used to exercise the mechanism. The volume parameter n is held once, in `params`, and the power-mean exponent is a = 1/n. A record is validated at construction: the parameters its kind needs are present, the LKB and relative-seriality parameters are positive, and α/β is positive where a voxel-based form uses it. The abdominal endpoint models depend on the site (allocator decision 19) and on the model family (allocator decision 10).
 
 Three functional forms cover nearly everything: LKB on a gEUD input; logistic on a linear predictor over dose metrics and clinical covariates, as used by the Dutch protocols; and relative seriality. Each is one function, and `kind` selects it. Adding a site means adding records. A logistic model on mean dose without a fractionation term is evaluated on mean EQD2 at a declared α/β, never on physical dose across schedules (allocator decision 10).
 
@@ -292,8 +291,8 @@ Retired: E7, E9, E11. Their content is in `CHANGELOG.md`.
 `evaluator/compose.py` implements Sections 4 and 7. It is the geometry-aware layer around `evaluator/ntcp.py`, which holds the linear quadratic and gEUD arithmetic as pure functions on plain arrays. `compose.py` does not compute BED, EQD2 or gEUD itself; it calls `ntcp.py` for all three, so the formulas are written in one place and a parameter cannot change in one copy and not another. What `compose.py` adds is what `ntcp.py` deliberately does not do: warping a field, summing fields on a shared grid, and constructing the DVH.
 
 ```
-compute_bed(dose_per_fraction, n_fx, alpha_beta) -> BED array          # via ntcp.bed
-warp_bed(bed_field, dvf) -> BED array, on the fixed image's grid       # no ntcp.py involvement
+compute_bed(dose_per_fraction, n_b, alpha_beta) -> BED array           # via ntcp.bed
+warp_bed(bed_field, dvf, *, rois, fill_value = 0) -> BED array, on the fixed image's grid   # no ntcp.py involvement
 sum_bed(bed_fields: list) -> total BED array                           # no ntcp.py involvement
 bed_to_eqd2(bed_total, alpha_beta) -> EQD2 array                       # via ntcp.eqd2_from_bed
 reduce_to_dvh(eqd2_field, roi_mask, *, max_dvh=None) -> DVH            # no ntcp.py involvement
@@ -302,10 +301,10 @@ geud_from_dvh(dvh, n) -> float                                         # via ntc
 
 Four conventions are fixed by this interface.
 
-- **Dose per fraction in, total dose to `ntcp.bed`.** The extractor stores physical dose per fraction. `ntcp.bed(dose, n_fx, ab)` takes a segment's total physical dose and derives the per-fraction value internally. `compute_bed` therefore multiplies by `n_fx` before the call, a round trip exact to floating-point rounding, so the module keeps the extractor's per-fraction dose as its public input while the LQ formula stays in one place. For a block, `n_fx` is the block's fraction count n_b (E21).
-- **The volume parameter is n.** `geud_from_dvh` takes n, matching `ntcp.py` and the registry's `params['n']`, and delegates to `ntcp.geud_from_cumulative_dvh`, which normalises the volume fractions and raises on an empty DVH. `DVH.histogram` in OpenTPS is cumulative (volume receiving at least a given dose, in per cent); the differential fractions are recovered as its first difference.
-- **`warp_bed` takes a field already computed.** Registration (`extractor.adapters.get_dvf`) is performed once per image pair and cached (extractor 6). Applying a cached field is cheap and is repeated once per (block, schedule, α/β) combination (Section 4.3). The registration's moving and fixed images are the block's repeat image and the planning CT (extractor 6.2); the BED field is passed to the field's `deformImage`.
-- **`reduce_to_dvh` sets `maxDVH` from the field** with a 5 per cent margin when it is not given explicitly (Section 7.2).
+- **Dose per fraction in, total dose to `ntcp.bed`.** The extractor stores physical dose per fraction. `ntcp.bed(dose, n_fx, ab)` takes a segment's total physical dose and derives the per-fraction value internally. `compute_bed` therefore multiplies by `n_b` before the call, a round trip exact to floating-point rounding, so the module keeps the extractor's per-fraction dose as its public input while the LQ formula stays in one place. The argument is the block's fraction count n_b (E21), held in the extractor's `BlockFractions` record, and not the course's fraction count.
+- **The volume parameter is n.** `geud_from_dvh` takes n, matching `ntcp.py` and the registry's `params['n']`, and delegates to `ntcp.geud_from_cumulative_dvh`, which normalises the volume fractions and raises on an empty DVH. `DVH.histogram` in OpenTPS is cumulative (volume receiving at least a given dose, in per cent); the differential fractions are recovered as its first difference. Both gEUD functions of `ntcp.py` evaluate the power mean scaled by the maximum dose, in float64, since the direct power mean overflows a float32 field for n of 0.05 or below at the EQD2 values of the hypofractionated arms (Section 7.2). Both raise on an empty or non-finite input.
+- **`warp_bed` takes a field already computed.** Registration (`extractor.adapters.get_dvf`) is performed once per image pair and cached (extractor 6). Applying a cached field is cheap and is repeated once per (block, schedule, α/β) combination (Section 4.3). The registration's moving and fixed images are the block's repeat image and the planning CT (extractor 6.2); the BED field is passed to the field's `deformImage`. Every argument that changes a result is explicit (extractor 3.4): a voxel whose source lies outside the BED field's grid is filled with 0, which shows as a hole in a DVH and not as a replicated edge value. `warp_bed` raises if the BED field and the field are not on one grid, or if any voxel of the ROI masks it is given (`rois`, the masks the warped field will be read on) is filled and not sampled, since a DVH over a partly filled ROI describes a different volume.
+- **`reduce_to_dvh` sets `maxDVH` from the field** with a 5 per cent margin when it is not given explicitly (Section 7.2). It raises if the ROI mask is not on the field's grid, since the OpenTPS DVH would resample the mask by interpolation and dilate it, or if the mask is empty.
 
 **Two consumers of the composed field.** `registry.evaluate()` for the `'lkb'` and `'rseriality'` kinds takes the EQD2 voxel array directly and computes gEUD from it: this is the primary, single nominal NTCP evaluation of a strategy. The DVH built by `reduce_to_dvh` serves the cached re-evaluation path of Section 7.2, in which n is perturbed many times without recomputing the accumulated field. Both paths are fed from `bed_to_eqd2`.
 
@@ -313,7 +312,7 @@ Four conventions are fixed by this interface.
 
 | File | Covers |
 |---|---|
-| `tests/test_compose.py` | Each function of Section 11.1 against independently derived values: the identity that EQD2 equals total physical dose at exactly 2 Gy per fraction for any α/β; the hypofractionated values of Section 7.2 (100 and 130 Gy EQD2); gEUD on a uniform dose (equal to the dose for any n) and on a hand-computed two-value case; `warp_bed` as a delegation to `deformImage` on a zero-displacement field. Delegation to `ntcp.py` is tested directly, by calling both and asserting agreement |
+| `tests/test_compose.py` | Each function of Section 11.1 against independently derived values: the identity that EQD2 equals total physical dose at exactly 2 Gy per fraction for any α/β; the hypofractionated values of Section 7.2 (100 and 130 Gy EQD2); gEUD on a uniform dose (equal to the dose for any n) and on a hand-computed two-value case; `warp_bed` as a delegation to `deformImage` on a zero-displacement field, and its refusal of a ROI whose voxels map outside the field; `reduce_to_dvh` on a mask off the field's grid or empty. Delegation to `ntcp.py` is tested directly, by calling both and asserting agreement |
 | `tests/test_end_to_end.py` | The seams between modules: DICOM ingest of CT and dose, real Morphons registration, `compute_bed`, `warp_bed`, `sum_bed`, `bed_to_eqd2`, `reduce_to_dvh`, into `registry.evaluate` with `rectum_bleeding_g2`. Two blocks of uniform dose, n_fx = 25 per block at 2.0 and 1.8 Gy per fraction, α/β = 3. Expected values computed by hand beforehand: EQD2 = 93.2 Gy, NTCP = 0.948501; reproduced to five and six significant figures, the residual consistent with registration interpolation. The cached DVH path and the direct voxel path agree within the binning error of Section 7.2 |
 | `tests/test_cohort_validation.py` | `validate_cohort` against the real registry: raises on a missing ROI and on a missing covariate, naming the patient; a cohort with one invalid patient stops before any patient reaches `evaluate()`. The covariate path uses a locally constructed logistic model, since the registry holds none with covariates |
 
