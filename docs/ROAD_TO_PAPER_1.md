@@ -1,6 +1,6 @@
 # Road to Paper 1
 
-Version 7.1. Version history is in `CHANGELOG.md`. Project status and open items are in `STATE.md`.
+Version 7.2. Version history is in `CHANGELOG.md`. Project status and open items are in `STATE.md`.
 
 ## 0. Document set and division of labour
 
@@ -313,14 +313,14 @@ An optimum on its own is not a clinically useful output, because no clinic imple
 |---|---|---|
 | P0 | Threshold-based referral, fixed standard schedule, no adaptation | Current practice. The baseline policy |
 | P1 | Threshold-based referral, adaptation for all proton patients, fixed schedule | Essentially the reference study |
-| P1x | As P1, then photon adaptation in decreasing ΔNTCP until the photon budget is exhausted | Separates the value of the adapted photon arm's existence from the value of optimising over it |
+| P1x | As P1, then photon adaptation on the standard schedule in decreasing ΔNTCP until the photon budget is exhausted | Separates the value of the adapted photon arm's existence at the schedule P1 holds from the value of the fractionation axis and of optimising over it |
 | P2a | Greedy by benefit density over patients | The natural but generally suboptimal capacity-aware rule |
 | P2b | Greedy by best available upgrade over Pareto-reduced option sets | The correct heuristic |
 | P3 | Exact multiple-choice knapsack optimum | Upper bound on what any allocation can achieve |
 
 Under two resources the heuristics rank proton upgrades only, and the photon budget is spent by the separate rule of Section 5.4 (allocator 5.3). All conventions coincide at zero photon budget, so the single-resource behaviour is recovered by construction.
 
-Cohort ΔNTCP is reported for each policy as a function of adaptation time. P3 − P0 is the total headroom; P2b − P0 is what a correct implementable rule captures; P3 − P2b indicates whether exact optimisation is worth anything; P2b − P2a is the methodological result of Section 5.4; and P3 − P1x separates the gain of optimising the allocation from the gain of the adapted photon arm merely existing, which P3 − P1 confounds. If P2b recovers most of P3, that is a useful clinical message and the natural performance baseline for a later WP3 agent.
+Cohort ΔNTCP is reported for each policy as a function of adaptation time. P3 − P0 is the total headroom; P2b − P0 is what a correct implementable rule captures; P3 − P2b indicates whether exact optimisation is worth anything; P2b − P2a is the methodological result of Section 5.4; P1x − P1 is what the adapted photon arm adds by existing at the standard schedule, and P3 − P1x is what the fractionation axis and the optimisation add; P3 − P1 confounds the two. If P2b recovers most of P3, that is a useful clinical message and the natural performance baseline for a later WP3 agent.
 
 **The policy comparison is a secondary output.** The primary result is the parametric behaviour of the optimal allocation itself under the two constraints; the policies read that result against implementable rules (Section 5.12).
 
