@@ -76,7 +76,8 @@ def _ct_series_paths(tmp_path, n_slices=2, spacing_z=2.0):
     return paths, frame_uid
 
 
-def _dose_dataset(rows=8, cols=8, plan_sop_uid=None, bits_stored=16, bits_allocated=16):
+def _dose_dataset(rows=8, cols=8, plan_sop_uid=None, bits_stored=16, bits_allocated=16,
+                  summation_type='FRACTION'):
     file_meta = FileMetaDataset()
     file_meta.MediaStorageSOPClassUID = '1.2.840.10008.5.1.4.1.1.481.2'
     file_meta.MediaStorageSOPInstanceUID = generate_uid()
@@ -104,7 +105,7 @@ def _dose_dataset(rows=8, cols=8, plan_sop_uid=None, bits_stored=16, bits_alloca
     ds.DoseGridScaling = 0.01
     ds.DoseUnits = 'GY'
     ds.DoseType = 'PHYSICAL'
-    ds.DoseSummationType = 'PLAN'
+    ds.DoseSummationType = summation_type
     ds.PixelSpacing = [2.0, 2.0]
     ds.SliceThickness = 2.0
     ds.ImagePositionPatient = [0.0, 0.0, 0.0]
@@ -146,6 +147,24 @@ class TestIngestCT:
         assert tuple(image.gridSize) == (8, 8, 3)
         assert tuple(np.round(image.spacing, 6)) == (2.0, 2.0, 2.0)
 
+    def test_rejects_a_spacing_that_differs_from_the_slice_positions(self, tmp_path, monkeypatch):
+        """OpenTPS 3.0.1 takes the z-spacing from SliceThickness when the tag is
+        present, so an overlapping reconstruction loads with a wrong spacing and
+        no error (S-04). Other versions derive it from the positions. The reader
+        is made to report the wrong spacing, so the test does not depend on the
+        version."""
+        paths, _ = _ct_series_paths(tmp_path, n_slices=3, spacing_z=2.0)
+        real = ingest.readDicomCT
+
+        def wrong_spacing(files):
+            image = real(files)
+            image.spacing = np.array([image.spacing[0], image.spacing[1], 5.0])
+            return image
+
+        monkeypatch.setattr(ingest, 'readDicomCT', wrong_spacing)
+        with pytest.raises(ValueError, match='slice positions give 2.000 mm'):
+            ingest.ingest_ct(paths)
+
     def test_rejects_empty_list(self):
         with pytest.raises(ValueError, match='no files'):
             ingest.ingest_ct([])
@@ -184,6 +203,37 @@ class TestIngestDose:
 
         with pytest.raises(ValueError, match='Unsupported pixel data type'):
             ingest.ingest_dose(path)
+
+
+class TestIngestDoseConvention:
+    """The store holds dose per fraction. A PLAN dose is divided by n_fx at
+    ingest; a file whose tags do not say what it holds raises (S-01, X9)."""
+
+    def test_plan_dose_is_divided_by_n_fx_and_a_fraction_dose_is_not(self, tmp_path):
+        plan = ingest.ingest_dose(_write(_dose_dataset(plan_sop_uid=generate_uid(), summation_type='PLAN'), tmp_path, 'plan.dcm'), n_fx=25)
+        assert np.allclose(plan.imageArray, 2.0 / 25)
+        assert plan.doseSummationType == 'FRACTION'
+        frac = ingest.ingest_dose(_write(_dose_dataset(plan_sop_uid=generate_uid(), summation_type='FRACTION'), tmp_path, 'frac.dcm'), n_fx=25)
+        assert np.allclose(frac.imageArray, 2.0)
+
+    @pytest.mark.parametrize('edit, n_fx, message', [
+        (lambda ds: setattr(ds, 'DoseSummationType', 'PLAN'), None, 'needs the fraction count'),
+        (lambda ds: delattr(ds, 'DoseSummationType'), 25, 'has no DoseSummationType'),
+        (lambda ds: setattr(ds, 'DoseSummationType', 'BEAM'), 25, 'BEAM'),
+        (lambda ds: setattr(ds, 'DoseUnits', 'RELATIVE'), 25, 'RELATIVE'),
+        (lambda ds: setattr(ds, 'GridFrameOffsetVector', [0.0, -2.0]), 25, 'decreasing'),
+    ])
+    def test_a_file_that_does_not_say_what_it_holds_raises(self, tmp_path, edit, n_fx, message):
+        ds = _dose_dataset()
+        edit(ds)
+        with pytest.raises(ValueError, match=message):
+            ingest.ingest_dose(_write(ds, tmp_path, 'd.dcm'), n_fx=n_fx)
+
+    def test_the_header_is_read_from_the_file_for_provenance(self, tmp_path):
+        path = _write(_dose_dataset(summation_type='PLAN'), tmp_path, 'plan.dcm')
+        rec = ingest.dose_header_record('dose:p/b0/header', ingest.read_dose_header(path), n_fx_divided=25)
+        assert rec.kind == 'measured'
+        assert 'DoseSummationType=PLAN' in rec.source and 'divided_by_n_fx=25' in rec.source
 
 
 # ---------------------------------------------------------------------------

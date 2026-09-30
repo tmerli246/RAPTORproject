@@ -67,8 +67,9 @@ def write_ct_series(image, tmp_dir: str, prefix: str) -> list:
 
 
 def write_dose(value_gy: float, grid, spacing, origin, tmp_dir: str, name: str,
-               plan_sop_uid: str = None) -> str:
-    """One RTDOSE file, uniform value, referencing `plan_sop_uid` if given."""
+               plan_sop_uid: str = None, summation_type: str = 'FRACTION') -> str:
+    """One RTDOSE file, uniform value, referencing `plan_sop_uid` if given.
+    The value is tagged as dose per fraction unless `summation_type` says otherwise."""
     file_meta = FileMetaDataset()
     file_meta.MediaStorageSOPClassUID = '1.2.840.10008.5.1.4.1.1.481.2'
     file_meta.MediaStorageSOPInstanceUID = generate_uid()
@@ -88,7 +89,7 @@ def write_dose(value_gy: float, grid, spacing, origin, tmp_dir: str, name: str,
     ds.PhotometricInterpretation = 'MONOCHROME2'
     scaling = 0.001
     ds.DoseGridScaling = scaling
-    ds.DoseUnits, ds.DoseType, ds.DoseSummationType = 'GY', 'PHYSICAL', 'PLAN'
+    ds.DoseUnits, ds.DoseType, ds.DoseSummationType = 'GY', 'PHYSICAL', summation_type
     ds.PixelSpacing = [float(spacing[0]), float(spacing[1])]
     ds.SliceThickness = float(spacing[2])
     ds.ImagePositionPatient = [float(v) for v in origin]
