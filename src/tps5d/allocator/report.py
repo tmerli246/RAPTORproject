@@ -32,9 +32,7 @@ from tps5d.allocator.dominance import pareto, hull
 def arm_label(s):
     """Short label for the arm a strategy belongs to, scheme included
     when it is not the standard one."""
-    stem = 'XT' if s.modality == 'xt' else 'PT'
-    arm = f"{stem}-A" if s.adapted else f"{stem}-NA"
-    return arm if s.scheme == 'std' else f"{arm} {s.scheme}"
+    return s.arm if s.scheme == 'std' else f"{s.arm} {s.scheme}"
 
 def summarise(cohort, alloc, facility = None):
     """Scalars describing one allocation.
@@ -57,6 +55,8 @@ def summarise(cohort, alloc, facility = None):
         'used_pt_min': alloc.used_pt,
         'used_xt_min': alloc.used_xt,
     }
+    if alloc.gap is not None:
+        rec['mip_gap'] = alloc.gap
     if facility is not None:
         rec['budget_pt_min'] = facility.budget_pt
         rec['budget_xt_min'] = facility.budget_xt

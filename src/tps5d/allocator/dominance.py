@@ -54,10 +54,8 @@ def pareto(pts):
     front, best = [], None
     for i in order:
         c, u = pts[i]
-        if front and c == pts[front[-1]][0]:
-            continue                      # equal cost, worse utility
         if best is not None and u <= best + TOL:
-            continue                      # costs more, buys nothing
+            continue                      # equal cost and worse, or costs more and buys nothing
         front.append(i)
         best = u
     return front
