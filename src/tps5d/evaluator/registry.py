@@ -26,6 +26,7 @@ queryable.
 
 from dataclasses import dataclass, field
 import numpy as np
+from scipy.special import expit
 
 from tps5d.evaluator.ntcp import eqd2, geud, lkb_from_geud
 
@@ -65,8 +66,18 @@ class Model:
         missing = need - set(self.params)
         if missing:
             raise ValueError(f"{self.name}: missing params {sorted(missing)}")
-        if self.kind in ('lkb', 'rseriality') and self.alpha_beta is None:
-            raise ValueError(f"{self.name}: voxel-based form requires alpha_beta")
+        if self.kind in ('lkb', 'rseriality'):
+            if self.alpha_beta is None:
+                raise ValueError(f"{self.name}: voxel-based form requires alpha_beta")
+            if not self.alpha_beta > 0:
+                raise ValueError(f"{self.name}: alpha_beta must be positive, got {self.alpha_beta!r}")
+        positive = {'lkb': ('n', 'm', 'td50'),
+                    'logistic': (),
+                    'rseriality': ('d50', 'gamma', 's')}[self.kind]
+        for key in positive:
+            if not self.params[key] > 0:
+                raise ValueError(f"{self.name}: parameter '{key}' must be positive, "
+                                 f"got {self.params[key]!r}")
 
     @property
     def fractionation_correctable(self):
@@ -142,15 +153,18 @@ def evaluate(model, eqd2_dose=None, metrics=None, covariates=None):
             if term not in pool:
                 raise ValueError(f"{model.name}: missing term '{term}'")
             s += coef * pool[term]
-        return float(1.0 / (1.0 + np.exp(-s)))
+        return float(expit(s))
 
-    # Relative seriality (Kallman). Equal-volume voxels.
-    d = np.clip(np.asarray(eqd2_dose, dtype=float), 0.0, None)
+    # Relative seriality (Kallman). Equal-volume voxels. The product over
+    # voxels is taken in log space, and 1 - prod as -expm1, which keeps the
+    # precision at NTCP near zero.
+    d = np.clip(np.asarray(eqd2_dose, dtype = float), 0.0, None)
+    if d.size == 0:
+        raise ValueError(f"{model.name}: empty dose array")
     d50, gamma, srs = model.params['d50'], model.params['gamma'], model.params['s']
     p_vox = 2.0 ** (-np.exp(np.e * gamma * (1.0 - d / d50)))
-    v = 1.0 / d.size
-    prod = np.prod((1.0 - p_vox ** srs) ** v)
-    return float((1.0 - prod) ** (1.0 / srs))
+    log_prod = np.mean(np.log1p(-p_vox ** srs))
+    return float((-np.expm1(log_prod)) ** (1.0 / srs))
 
 def evaluate_dose(model, dose, n_fx):
     """NTCP of one model from a single plan's physical dose.

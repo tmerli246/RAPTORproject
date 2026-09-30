@@ -133,3 +133,31 @@ def test_rseriality_seriality_raises_sensitivity_to_hot_subvolume():
     parallel = Model(name='b', site='pelvis', kind='rseriality', roi='Rectum',
                      alpha_beta=3.0, params={'d50': 60.0, 'gamma': 2.0, 's': 0.01})
     assert evaluate(serial, eqd2_dose=dose) > evaluate(parallel, eqd2_dose=dose)
+
+
+# The record itself (evaluator design 8, CR-10)
+
+def test_registry_record_matches_evaluator_design_8():
+    """Read-back tests are self-consistent under any edit of the record; only
+    these literals fail if n, alpha_beta or td50 is transcribed wrongly."""
+    m = REGISTRY['rectum_bleeding_g2']
+    assert (m.kind, m.site, m.roi, m.alpha_beta) == ('lkb', 'pelvis', 'Rectum', 3.0)
+    assert m.params == {'n': 0.09, 'm': 0.13, 'td50': 76.9}
+    assert 'Michalski' in m.source and 'QUANTEC' in m.source
+
+@pytest.mark.parametrize('d, expected', [(45.0, 0.0673188), (75.0, 0.836895)])
+def test_rseriality_matches_the_kallman_form_away_from_d50(d, expected):
+    """P(D) = 2^(-exp(e * gamma * (1 - D / D50))) at uniform dose, s irrelevant.
+    gamma 2, D50 60. Literals computed once from the formula: 45 Gy gives
+    2^(-exp(e * 2 * 0.25)) = 0.0673188, 75 Gy gives 0.836895. At D = D50 the
+    exponent is zero and the factor e does not enter."""
+    m = Model(name = 'w', site = 'pelvis', kind = 'rseriality', roi = 'Rectum',
+              alpha_beta = 3.0, params = {'d50': 60.0, 'gamma': 2.0, 's': 1.0})
+    assert evaluate(m, eqd2_dose = np.full(200, d)) == pytest.approx(expected, rel = 2e-4)
+
+@pytest.mark.parametrize('key', ['n', 'm', 'td50'])
+def test_lkb_parameters_must_be_positive(key):
+    params = {'n': 0.1, 'm': 0.1, 'td50': 70.0, key: 0.0}
+    with pytest.raises(ValueError, match = key):
+        Model(name = 'x', site = 'pelvis', kind = 'lkb', roi = 'Rectum',
+              alpha_beta = 3.0, params = params)
