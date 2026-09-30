@@ -36,6 +36,7 @@ Solver structure, following open decision 15 of the allocator design:
 """
 
 import numpy as np
+import scipy.sparse as sp
 from scipy.optimize import linprog, milp, LinearConstraint, Bounds
 
 from tps5d.core.schema import Allocation, LPSolution
@@ -49,6 +50,14 @@ RES = 0.1
 
 # Weights within this distance of 0 or 1 are read as integral in LP solutions.
 W_TOL = 1e-7
+
+# Relative optimality gap of the integer solver. HiGHS defaults to 1e-4, which
+# on non-concave cohorts left a shortfall on the cohort sum of up to 3e-4 at
+# P = 200 and 3e-3 at P = 1000 in the cases tested. 1e-6 matched the zero-gap
+# objective at P = 200. Run time grows with P and depends on the instance: at
+# P = 1000 one generated cohort solved in 3 s and another did not finish in
+# 150 s, where 1e-4 took 0.6 s. Pass a looser `mip_rel_gap` at that size.
+MIP_REL_GAP = 1e-6
 
 def _units(minutes, res = RES):
     """Machine time in integer units of `res` minutes, rounded up for costs."""
@@ -74,25 +83,29 @@ def _model(cohort, facility):
                      [s.occ_xt for _, s in cols]])
     b_ub = np.array([facility.budget_pt, facility.budget_xt])
 
+    # One assignment row per patient, sparse: P x (sum of option counts).
     pids = cohort.pids
     row = {pid: i for i, pid in enumerate(pids)}
-    a_eq = np.zeros((len(pids), len(cols)))
-    for j, (pid, _) in enumerate(cols):
-        a_eq[row[pid], j] = 1.0
+    r = np.array([row[pid] for pid, _ in cols])
+    a_eq = sp.csr_array((np.ones(len(cols)), (r, np.arange(len(cols)))),
+                        shape = (len(pids), len(cols)))
     b_eq = np.ones(len(pids))
     return cols, c, a_ub, b_ub, a_eq, b_eq
 
-def _wrap_choice(cohort, choice):
+def _wrap_choice(cohort, choice, gap = None):
     used_pt = sum(s.occ_pt for s in choice.values())
     used_xt = sum(s.occ_xt for s in choice.values())
     mean = np.mean([cohort.dntcp(s) for s in choice.values()])
     return Allocation(choice = choice, used_pt = used_pt, used_xt = used_xt,
-                      mean_dntcp = mean)
+                      mean_dntcp = mean, gap = gap)
 
-def solve_exact(cohort, facility):
-    """Exact two-resource MCKP optimum, by integer linear programming.
+def solve_exact(cohort, facility, mip_rel_gap = MIP_REL_GAP):
+    """Two-resource MCKP optimum, by integer linear programming, to a relative
+    gap of `mip_rel_gap` (default 1e-6; 0 is exact and can be slow beyond a few
+    hundred patients).
 
-    Returns an Allocation. Feasibility is guaranteed whenever every patient
+    Returns an Allocation whose `gap` is the relative gap the solver reports at
+    termination. Feasibility is guaranteed whenever every patient
     has an assignable option that is free on both budgets, since the model can
     then always fall back to it. That holds in the normal case, where the
     reference arm is assignable. It does not hold once the coverage screen has
@@ -105,7 +118,8 @@ def solve_exact(cohort, facility):
                constraints = [LinearConstraint(a_ub, ub = b_ub),
                               LinearConstraint(a_eq, lb = b_eq, ub = b_eq)],
                integrality = np.ones(len(cols)),
-               bounds = Bounds(0, 1))
+               bounds = Bounds(0, 1),
+               options = {'mip_rel_gap': mip_rel_gap})
     if not res.success:
         raise RuntimeError(f"milp failed: {res.message}. "
                            f"Patients without a free assignable option: "
@@ -114,8 +128,14 @@ def solve_exact(cohort, facility):
     choice = {}
     for (pid, s), x in zip(cols, res.x):
         if x > 0.5:
+            if pid in choice:
+                raise RuntimeError(f"{pid}: two options selected")
             choice[pid] = s
-    return _wrap_choice(cohort, choice)
+    if len(choice) != len(cohort.pids):
+        missing = [pid for pid in cohort.pids if pid not in choice]
+        raise RuntimeError(f"solve_exact: no option selected for {missing}")
+    gap = getattr(res, 'mip_gap', None)
+    return _wrap_choice(cohort, choice, None if gap is None else float(gap))
 
 def solve_lp(cohort, facility):
     """Linear relaxation of the same model, with the shadow prices read from
@@ -294,8 +314,6 @@ def solve_greedy(cohort, facility):
                 if dc > left + 1e-9:
                     break                       # chain is sorted by cost
                 du = cohort.dntcp(c[j]) - cohort.dntcp(here)
-                if du <= 0:
-                    continue
                 if best is None or du / dc > best[0]:
                     best = (du / dc, pid, j, dc)
         if best is None:
