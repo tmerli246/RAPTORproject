@@ -48,34 +48,50 @@ def load_roi_mapping(path: str) -> RoiMapping:
     One row per structure. Comment lines starting with # and blank lines
     are skipped, so a near-empty file with only a header is a valid,
     intentionally unpopulated mapping, per extractor design 9's
-    "mechanism built now, populated later".
+    "mechanism built now, populated later". A row that names only one of the
+    two structures raises, with the line number: an unmapped structure raises
+    (extractor design 9), and a half-filled row is an unmapped structure.
+    A UTF-8 byte order mark is accepted.
     """
+    with open(path, newline = '', encoding = 'utf-8-sig') as f:
+        lines = f.read().splitlines()
+    kept = [(i, ln) for i, ln in enumerate(lines, start = 1)
+            if ln.strip() and not ln.lstrip().startswith('#')]
+    rows = list(csv.reader(ln for _, ln in kept))
+    header = rows[0] if rows else None
+    if header != ['canonical_name', 'dicom_name']:
+        raise ValueError(
+            f"{path}: expected header 'canonical_name,dicom_name', got {header}"
+        )
+
     entries = {}
-    with open(path, newline='', encoding='utf-8') as f:
-        reader = csv.DictReader(f)
-        if reader.fieldnames != ['canonical_name', 'dicom_name']:
+    for (line, _), row in zip(kept[1:], rows[1:]):
+        if len(row) != 2:
+            raise ValueError(f"{path}, line {line}: expected 2 fields, got {len(row)}")
+        canonical, dicom = row[0].strip(), row[1].strip()
+        if not canonical and not dicom:
+            continue
+        if not canonical or not dicom:
             raise ValueError(
-                f"{path}: expected header 'canonical_name,dicom_name', "
-                f"got {reader.fieldnames}"
+                f"{path}, line {line}: one of the two names is empty "
+                f"({canonical!r}, {dicom!r})"
             )
-        for row in reader:
-            canonical = row['canonical_name'].strip()
-            dicom = row['dicom_name'].strip()
-            if not canonical or not dicom:
-                continue
-            if canonical in entries:
-                raise ValueError(
-                    f"{path}: canonical name {canonical!r} appears twice, "
-                    f"as {entries[canonical]!r} and {dicom!r}. A mapping "
-                    f"file with two answers for the same lookup is exactly "
-                    f"the ambiguity this mechanism exists to remove."
-                )
-            entries[canonical] = dicom
+        if canonical in entries:
+            raise ValueError(
+                f"{path}, line {line}: canonical name {canonical!r} appears "
+                f"twice, as {entries[canonical]!r} and {dicom!r}. A mapping "
+                f"file with two answers for the same lookup is exactly "
+                f"the ambiguity this mechanism exists to remove."
+            )
+        entries[canonical] = dicom
 
+    # Hash of the content, not of the line endings: git autocrlf on Windows
+    # must not change the hash of an unchanged mapping.
     with open(path, 'rb') as f:
-        content_hash = hashlib.sha256(f.read()).hexdigest()[:16]
+        raw = f.read().removeprefix(b'\xef\xbb\xbf').replace(b'\r\n', b'\n')
+    content_hash = hashlib.sha256(raw).hexdigest()[:16]
 
-    return RoiMapping(entries=entries, content_hash=content_hash, path=path)
+    return RoiMapping(entries = entries, content_hash = content_hash, path = path)
 
 
 def resolve_dicom_name(rtstruct, canonical_name: str, mapping: RoiMapping) -> str:
@@ -112,9 +128,16 @@ def resolve_dicom_name(rtstruct, canonical_name: str, mapping: RoiMapping) -> st
         )
 
     expected = _normalize(mapping.entries[canonical_name])
-    for contour in rtstruct.contours:
-        if _normalize(contour.name) == expected:
-            return contour.name
+    matches = [c.name for c in rtstruct.contours if _normalize(c.name) == expected]
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        raise KeyError(
+            f"{len(matches)} contours in the RTSTRUCT normalise to "
+            f"{expected!r}: {matches}. Which one is meant is exactly the "
+            f"ambiguity the mapping exists to remove; rename one in the "
+            f"export or make the mapping name unique."
+        )
 
     available = sorted(c.name for c in rtstruct.contours)
     raise KeyError(

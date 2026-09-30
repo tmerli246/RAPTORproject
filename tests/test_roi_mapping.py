@@ -69,6 +69,23 @@ class TestLoadRoiMapping:
         mapping = load_roi_mapping(str(path))
         assert mapping.entries == {'Rectum': 'rectum'}
 
+    @pytest.mark.parametrize('text', [
+        "# cohort A\ncanonical_name,dicom_name\n# a note\nRectum,rectum\n",
+        "\ufeffcanonical_name,dicom_name\nRectum,rectum\n",
+    ])
+    def test_reads_comment_lines_and_a_byte_order_mark(self, tmp_path, text):
+        path = tmp_path / "commented.csv"
+        path.write_bytes(text.encode('utf-8'))
+        assert load_roi_mapping(str(path)).entries == {'Rectum': 'rectum'}
+
+    def test_a_half_filled_row_raises_naming_the_line(self, tmp_path):
+        """A row with one name is an unmapped structure, and an unmapped
+        structure raises (extractor design 9)."""
+        path = tmp_path / "half.csv"
+        path.write_text("canonical_name,dicom_name\nRectum,rectum\nBladder,\n", encoding='utf-8')
+        with pytest.raises(ValueError, match='line 3'):
+            load_roi_mapping(str(path))
+
     def test_empty_mapping_loads_cleanly(self, tmp_path):
         """A header-only file is a valid, intentionally unpopulated mapping:
         extractor design 9, mechanism built now, populated later.
@@ -119,6 +136,14 @@ class TestResolveDicomName:
         rtstruct = _rtstruct_with_contours(['Bladder'])  # no Rectum here
 
         with pytest.raises(KeyError, match='data problem, not a mapping-file problem'):
+            resolve_dicom_name(rtstruct, 'Rectum', mapping)
+
+    def test_two_contours_with_the_same_normalised_name_raise(self, tmp_path):
+        """Which of the two is meant is the ambiguity the mapping exists to
+        remove; returning the first would depend on the export order."""
+        mapping = load_roi_mapping(_write_mapping(tmp_path, [('Rectum', 'rectum')]))
+        rtstruct = _rtstruct_with_contours(['Rectum', ' rectum'])
+        with pytest.raises(KeyError, match='normalise to'):
             resolve_dicom_name(rtstruct, 'Rectum', mapping)
 
     def test_no_fuzzy_matching(self, tmp_path):
