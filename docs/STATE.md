@@ -1,8 +1,8 @@
 # Project state
 
-**Last updated:** 2026-09-29. Code tag `design-v6.3`, unchanged. Documents: road **7.1**, allocator **7.1**, evaluator **6.7**, extractor **5.9**.
+**Last updated:** 2026-09-30. Code tag `design-v6.4`. Documents: road **7.2**, allocator **7.2**, evaluator **6.8**, extractor **5.10**.
 
-**Last round: documentation cleanup (29 September 2026).** All four design documents rewritten to state the current design and its reasons, with version history moved to `CHANGELOG.md`, one assumptions register per document, only open decisions listed, deferred material deleted, and each document renumbered once. Three substantive corrections came out of it: the block structure is read as systematic online adaptation throughout (Section 3); the acceptance judgement and every rescue are made in RayStation at plan generation and recorded in the export manifest (Section 3); and the claim that rescue leaves the step-ratio threshold unchanged was wrong and is withdrawn (road 5.10). No supervisory decision was reopened. Detail and the section-renumbering map are in `CHANGELOG.md`.
+**Last round: code review and its implementation (30 September 2026).** The source, the tests and the two scripts were reviewed against the 29 September documents, and the findings the review confirmed were implemented in the working tree. Behaviour that changed: a `PLAN`-tagged RTDOSE is divided by `n_fx` at ingest, and its header is read, checked and recorded (extractor 5); the manifest is validated as a whole and carries `dose_image_uid`, `accept_nominal` and `accept_robust` (extractor 4); `compute_bed` takes the block fraction count n_b (evaluator 11.1); `warp_bed` fills with 0 and refuses a ROI that would sample the fill; gEUD is evaluated scaled by the maximum dose, in float64; the integer solve runs to a relative gap of 1e-6 and reports the gap it reached; P1x adapts photon patients on the standard schedule only, which changes what P1x − P1 and P3 − P1x measure (road 5.6, allocator 5.3). The four design documents were amended where text and code disagreed: allocator 7.2 (objective of each solver, D_XT, gap, P1x, tie-breaks, T16 to T18, the shape fractions of Section 5.5 from a run, the P2a and P2b illustration removed), road 7.2 (P1x), evaluator 6.8 (n_b, guards, gEUD scaling, registry validation), extractor 5.10 (dose scale, manifest validation, mapping file rules, `get_dvf` on a `WorkingGrid`). The OpenTPS 3.0.1 behaviours in extractor 3.4 were read from the source and are confirmed on the project checkout at the first measurement session (X10). No supervisory decision was reopened. Detail is in `CHANGELOG.md`.
 
 Rewrite this file whenever a document version, an open decision or a code milestone changes, and before bumping a document version. It is the first file to read and the only one that describes the present.
 
@@ -20,10 +20,10 @@ The four design documents, this file and `CHANGELOG.md` live in `docs/` at the r
 
 | Document | Version | Owns |
 |---|---|---|
-| `ROAD_TO_PAPER_1.md` | 7.1 | Scientific question, hypothesis, arm set, uncertainty budget, plan budget, endpoint policy, what the paper claims, declared limitations (7.2) |
-| `allocator_design.md` | 7.1 | Optimisation problem, algorithm, shadow prices, step-ratio threshold (6.2), policies, synthetic cohorts (5.5), time model, assumptions register (11), open decisions (12) |
-| `evaluator_design.md` | 6.7 | Strategy construction, interface, accumulation ordering, composition, coverage verification and no-harm diagnostic, caching, NTCP model registry, assumptions register (10), implementation (11) |
-| `extractor_design.md` | 5.9 | OpenTPS mapping and adapter rules (3), export manifest (4), storage (5), registration (6), target metrics (7), ROI naming (9), schema (11), provenance (12), assumptions register (13), open items (14) |
+| `ROAD_TO_PAPER_1.md` | 7.2 | Scientific question, hypothesis, arm set, uncertainty budget, plan budget, endpoint policy, what the paper claims, declared limitations (7.2) |
+| `allocator_design.md` | 7.2 | Optimisation problem, algorithm, shadow prices, step-ratio threshold (6.2), policies, synthetic cohorts (5.5), time model, assumptions register (11), open decisions (12) |
+| `evaluator_design.md` | 6.8 | Strategy construction, interface, accumulation ordering, composition, coverage verification and no-harm diagnostic, caching, NTCP model registry, assumptions register (10), implementation (11) |
+| `extractor_design.md` | 5.10 | OpenTPS mapping and adapter rules (3), export manifest (4), storage (5), registration (6), target metrics (7), ROI naming (9), schema (11), provenance (12), assumptions register (13), open items (14) |
 | `CHANGELOG.md` | – | Version history, retired register rows, deleted material, renumbering maps. In the repository, not in project knowledge |
 
 **Version numbers.** The evaluator is one version behind the allocator on the major number: one supervisory decision amends both. The extractor moves when its own content moves. Code tags track behaviour, not document versions: a code round is tagged `design-vX.Y` for the document generation its behaviour matches. The first `design-v7.x` tag is earned when the evaluator composes non-adapted arms from the manifest's plan sequence, rescue plans included.
@@ -117,23 +117,23 @@ Package `tps5d` in the RAPTORproject repository, `src/tps5d/` with `core`, `allo
 
 | Package | Modules |
 |---|---|
-| `core` | `schema.py`: `Strategy` (adapted as a boolean), `BlockPlan` (`block_index`, `role` ∈ {planned, rescue}, `source_image`), optional `block_plans` per strategy, the all-planned sequence enforced for adapted arms |
-| `allocator` | `solve.py` (ILP reference, `solve_dp` cross-check), `dominance.py` (Pareto and hull), `policies.py`, `report.py` (including `rescue_counts`, `dominance_counts` anchored per axis), `figures.py` |
-| `generator` | `synth.py`: seven options per patient, `hypo_frac` eligibility, `SHAPES`, synthetic rescue draw (`p0 = 0.05`, `decay = 0.5`, placeholders) (allocator 5.5) |
-| `evaluator` | `ntcp.py`, `registry.py`, `compose.py` |
-| `extractor` | `records.py`, `adapters.py`, `ingest.py`, `roi_mapping.py`, `manifest.py`, `provenance.py` (extractor 3.5) |
+| `core` | `schema.py`: `Strategy` (adapted as a boolean, `arm` derived from modality and adaptation through `ARM_OF`), `BlockPlan` (`block_index`, `role` ∈ {planned, rescue}, `source_image`, and optional `dose_image`, `accept_nominal`, `accept_robust`), optional `block_plans` per strategy, the all-planned sequence enforced for adapted arms; `Facility` validated at construction; strategy identifiers unique within a patient; `Allocation.gap` |
+| `allocator` | `solve.py` (ILP reference with `MIP_REL_GAP = 1e-6` and the achieved gap returned, `solve_dp` cross-check), `dominance.py` (Pareto and hull), `policies.py` (P1x on the standard schedule, tie-breaks by photon occupancy and identifier), `report.py` (including `rescue_counts`, `dominance_counts` anchored per axis, the MIP gap), `figures.py` (record-based API) |
+| `generator` | `synth.py`: seven options per patient, `hypo_frac` eligibility, `SHAPES`, `pen_xt` (default 0), synthetic rescue draw (`p0 = 0.05`, `decay = 0.5`, placeholders) (allocator 5.5) |
+| `evaluator` | `ntcp.py`, `registry.py` (validated records), `compose.py` |
+| `extractor` | `records.py` (including `WorkingGrid`, `BlockFractions`, `DoseHeader`), `adapters.py`, `ingest.py`, `roi_mapping.py`, `manifest.py`, `provenance.py` (extractor 3.5) |
+| `scripts/` | `make_figures.py` (allocator figures from a cohort or from records), `two_scheme_check.py` (regimes of the two-schedule hull over the biological penalty and Δτ_PT), `shape_fractions.py` (hull composition of the three generator shapes, the percentages of allocator 5.5) |
 
-**Tests: 406 passed, 1 skipped, 407 collected**, confirmed by Tommaso with `pytest tests -q` on 16 September 2026, against both OpenTPS installations for the modules that touch OpenTPS. 260 in the suites that predate the extractor and composition work; 147 collected in `test_adapters.py` 38, `test_roi_mapping.py` 11, `test_manifest.py` 24, `test_compose.py` 21, `test_ingest.py` 14, `test_provenance.py` 20, `test_end_to_end.py` 10, `test_cohort_validation.py` 9. The one skip depends on which ROI-masking method the installation has (X10).
+**Tests: 475 passed, 1 skipped, 476 collected**, confirmed by Tommaso with `python -m pytest tests -q -rs` on 30 September 2026 in two environments, both Python 3.12. `OpenTPS` is the project's editable checkout, OpenTPS 3.0.0; the skipped test is `test_adapters.py:345` (`get_partial_volume_mask` absent). `OpenTPS_301` is the public release installed with `pip install opentps`, OpenTPS 3.0.1; the skipped test is `test_adapters.py:516` (`getBinaryMask` forwards to `get_partial_volume_mask`). A run by Claude in a Python 3.12 environment with OpenTPS 3.0.1 gave the same counts. 299 collected in the suites that predate the extractor and composition work, including the new `test_allocator_rules.py` 9; 177 in `test_adapters.py` 40, `test_roi_mapping.py` 15, `test_manifest.py` 35, `test_compose.py` 25, `test_ingest.py` 22, `test_provenance.py` 22, `test_end_to_end.py` 9, `test_cohort_validation.py` 9. The one skip depends on which ROI-masking method the installation has (X10). A test is kept when it guards a fix or a closed-form design claim, at most one per fix.
 
-**Behaviour.** The allocator implements the version 7 design. The evaluator composes, converts and evaluates, verified end to end on synthetic DICOM; it does not yet compose non-adapted arms from a manifest plan sequence or verify the acceptance judgement. Rescue exists only as the generator's synthetic draw.
+**Behaviour.** The allocator implements the version 7 design. The evaluator composes, converts and evaluates with the block fraction count, verified end to end on synthetic DICOM; it does not yet compose non-adapted arms from a manifest plan sequence or verify the acceptance judgement. The extractor reads and validates the extended manifest, converts a plan-total dose to per fraction at ingest, and records the dose header, the masking method and n_b as provenance. Rescue exists only as the generator's synthetic draw.
 
-**Where the code is behind the 29 September documents.** To be checked and scheduled in the code review:
+**Where the code is behind the documents.**
 
-- manifest columns `dose_image_uid`, `accept_nominal`, `accept_robust` (extractor 4); the check of `dose_image_uid` itself waits on decision 30;
-- schema fields `arm`, `dose_image`, acceptance outcomes, and n_b per (patient, block, schedule) (extractor 11; evaluator E21);
-- the block fraction count n_b passed to `compute_bed` rather than the schedule's n_fx (evaluator 11.1);
-- the masking method and n_b recorded as provenance primitives (extractor 12.2);
-- the evaluator's composition from the manifest and its verification of the acceptance judgement (evaluator 6.1, 11.3), which also earns the first `design-v7.x` tag.
+- The evaluator's composition from the manifest and its verification of the acceptance judgement (evaluator 6.1, 11.3, code review item G-5), which also earns the first `design-v7.x` tag.
+- The check of `dose_image_uid` against the loaded dose waits on decision 30. The column is read and validated for form only.
+- The deformation field cache is not implemented. Its key includes the hash of the `WorkingGrid` (extractor 6), which `WorkingGrid.content_hash` provides.
+- Known and not scheduled: OpenTPS 3.0.1 only warns on a CT with a non-standard orientation and `ingest_ct` does not raise on it (review item S-04, the orientation part); the `DVH` constructor computes a histogram at 100 Gy and `computeDVH` then computes it again at the field's own `maxDVH` (S-07, the wasted work); `solve_greedy` is O(iterations · P · 7), 4.5 s at P = 1000 and 43 s at P = 3000 in the review, and a heap version is not applied since it changes no result (S-13).
 
 ## 7. Next actions
 
@@ -141,8 +141,8 @@ Package `tps5d` in the RAPTORproject repository, `src/tps5d/` with `core`, `allo
 2. **One request to the clinical partners** covering 7b (target and OAR metrics separately), 31 and the eligibility flags, repeat imaging and images for short courses (23), contours on repeat images (29), 25, 3, 12, 13, and whether prescriptions vary by patient.
 3. **One request to Sterpin** covering 28, 30 and the scope confirmation.
 4. **Decision 26 probe** on the first case: script one adapted replan per modality from a fixed objective template, and record whether it is acceptable without intervention.
-5. **Measurement session** on the first case (extractor 14): grid dimensions and masked volumes, crop ratio, grid routes, `baseResolution`, the gEUD difference between the two DVF backends, masking sensitivity, and the axis convention across readers.
-6. **Code review** against the 29 September documents (Section 6).
+5. **Measurement session** on the first case (extractor 14): grid dimensions and masked volumes, crop ratio, grid routes, `baseResolution`, the gEUD difference between the two DVF backends, masking sensitivity, the axis convention across readers, and the dose header (`DoseSummationType`, `DoseUnits`, `DoseType`, `DoseGridScaling`, direction of `GridFrameOffsetVector`) with the target's dose per fraction before and after the conversion at ingest. It also confirms the OpenTPS 3.0.1 behaviours of extractor 3.4 that were read from the source.
+6. **Close the code review round** (Tommaso): run the suite on both OpenTPS installations, commit in the order of the commit plan, tag `design-v6.4`, and replace the test line of Section 6 with the result.
 7. After decision 19: map the sign of the utility of a hypofractionated photon arm against a standard-schedule one, on synthetic DVHs, over the plausible range of α/β and volume parameter (allocator 10.1).
 
 ## 8. Calendar

@@ -8,6 +8,52 @@ Consolidated version history for the four design documents, kept separate from t
 
 **Full text of superseded versions** is recoverable from git. The entries record what changed and why, and archive retired rows and deleted specification text that may be needed again.
 
+## 2026-09-30, code review round: documents
+
+**Versions.** `ROAD_TO_PAPER_1.md` 7.1 to 7.2, `allocator_design.md` 7.1 to 7.2, `evaluator_design.md` 6.7 to 6.8, `extractor_design.md` 5.9 to 5.10, `STATE.md` of 29 September to 30 September. No section was renumbered, so no renumbering map. The code tag moves from `design-v6.3` to `design-v6.4` once the suite has been run on both OpenTPS installations.
+
+**Cause.** The review of `src`, of the tests and of the two scripts found places where a document stated something the code does not do, places where the code did something the documents did not state, an illustrative figure and a universal claim without a run behind them. The code was changed where the design was right and the document where the code was right. No supervisory decision was reopened.
+
+### allocator_design.md 7.2
+
+- **Objective of each solver (5.1).** The text said the allocator solves on absolute NTCP. Only the dynamic-program cross-check does. The integer, linear and greedy solvers maximise the sum of ΔNTCP, which gives the reference arm a coefficient of exactly zero. The two are the same problem because each patient takes exactly one strategy, and T5 asserts that they return identical allocations. The document was amended to the code, since the code was the more direct of the two forms. The same correction is in evaluator 6.8 (Section 3, the `ntcp_k` row and the internal representation of utility).
+- **Solver gap (5.1).** The integer solve runs to a relative gap of 1e-6 (`mip_rel_gap`, an argument) and returns the gap the solver reports. The HiGHS default of 1e-4 left a shortfall on the cohort sum of up to 3e-4 at P = 200 and 3e-3 at P = 1000 on generated non-concave cohorts. Solve time at P = 1000 depends on the instance, from 3 s to over 150 s at 1e-6 against 0.6 s at the default.
+- **Normaliser D_XT (5.2).** The text gave D_XT = Σ_p n_fx,std · Δτ_XT. That holds only where every patient holds the standard-schedule adapted photon arm. D_XT is now the sum over patients of the largest photon adaptation occupancy among the admissible options, which is the smallest budget at which C_XT cannot bind. The `Cohort.demand_xt()` method implements it.
+- **P1x (5.3).** P1x adapts photon patients on the standard schedule only, as P1 holds the schedule fixed. Before, the definition allowed the hypofractionated XT-A, so P1x could hold part of the fractionation axis, and P3 − P1x understated what that axis adds. P1x − P1 is now what the adapted photon arm adds by existing at the standard schedule, and P3 − P1x is what the fractionation axis and the optimisation add. P1x equals P1 below one standard-schedule adapted course of photon budget (T18). The same change is in road 5.6.
+- **Referral and tie-breaks (5.3).** P0 and P1 refer only when ΔNTCP is at least the threshold and greater than zero. Ties in ΔNTCP are broken by lower photon occupancy and then by identifier, so that results do not depend on the order of the option list.
+- **P2a and P2b separation (5.3).** The figures "6.6 per cent against 3.4 per cent, and 1.3 per cent within one schedule" were deleted. They came from one two-schedule illustration whose parameters are not recorded. The separation is measured on the study cohort.
+- **Tests (5.4).** T16 (two-schedule forms of the threshold of 6.2, `test_threshold.py`), T17 (photon chain closed form, `test_generator.py`) and T18 (P1x, `test_allocator_rules.py`) added. T14 is not run across two schedules, and T16 covers that case.
+- **Synthetic cohorts (5.5).** The statement that the standard non-adapted proton arm is below the hull in every reachable configuration was replaced by fractions from a run, 400 generated patients at seed 11 over the reference-study Δτ_PT sweep. The fractions depend on Δτ_PT, and the single-Δτ percentages of the review notes were replaced by the values over the sweep. The fractions are printed by the new `scripts/shape_fractions.py`, and depend on τ0 (87% instead of 91% for PT-NA hypofractionated in `both_schemes` at 25.7 min if τ0 is 34.2 min instead of the generator's 30 min). Where the arm reaches the hull is mapped by `scripts/two_scheme_check.py`. `pen_xt` is documented: the adapted photon arm carries the same benefit under both schedules unless it is set, and its default is zero. All generator benefits and costs are labelled illustrative.
+
+### ROAD_TO_PAPER_1.md 7.2
+
+- **5.6.** P1x definition and the reading of P1x − P1 and P3 − P1x, as in allocator 5.3.
+
+### evaluator_design.md 6.8
+
+- **Section 3, `ntcp_k` and internal representation of utility.** As allocator 7.2. The cache key of the deformation field includes the working grid.
+- **Section 8 registry.** The volume parameter n is held once, in `params`, and the power-mean exponent is a = 1/n. The example record no longer carries a separate `metric` entry that repeated it. A record is validated at construction.
+- **Section 11.1.** `compute_bed` takes the block fraction count n_b, held in the extractor's `BlockFractions` record, and not the course's `n_fx`. `warp_bed` takes `rois` and `fill_value`, fills with 0, and raises if any voxel of a ROI would sample the fill. `reduce_to_dvh` raises on a mask on another grid or an empty mask. Both gEUD functions evaluate the power mean scaled by the maximum dose, in float64, since the direct power mean overflows float32 for n of 0.05 or below at the EQD2 values of the hypofractionated arms.
+- **Tests (11.2).** `test_compose.py` entry extended to the guards.
+
+### extractor_design.md 5.10
+
+- **3.1 and 3.4.** Four rows added or extended from the OpenTPS 3.0.1 source: `readDicomDose` fills defaults for absent dose tags and misplaces the origin by one slice for a decreasing `GridFrameOffsetVector`; `readDicomCT` takes the z-spacing from a tag when one is present; `deformImage` applies the cached displacement and not the velocity; the `DVH` constructor computes at 100 Gy and resamples a mismatched mask. A paragraph states that these were read from the source and are confirmed on the project checkout at the first measurement session (X10).
+- **3.5.** Module table brought to the code (`BlockFractions`, `DoseHeader`, `read_dose_header`, `validate_manifest`, `check_dose_scale`, `mask_method_record`, `block_fractions_record`).
+- **4.** Outcome columns take `1`, `0` or empty. The first eight columns also read. A relative `path` resolves against the manifest directory. The manifest is validated as a whole on read. `check_manifest` is keyed by (plan_uid, block_index). `check_dose_scale` added, with its band of 0.5 to 1.5.
+- **5.** New paragraph, dose scale at ingest: a `PLAN` dose is divided by the schedule's `n_fx`, absent tags and a decreasing offset vector raise, the header and the conversion are recorded in provenance. The decision of 30 September was to convert at ingest, with provenance and a plausibility check, and not in the evaluator.
+- **6 and 6.1.** DVF cache key includes the hash of the working grid. `get_dvf(*, moving, fixed, settings, grid)` replaces `working_spacing`. The displacement is resampled and the velocity dropped. The settings hash covers the content of an imported file, not its path.
+- **9, 11, 12.1, 13 (X9), 14.** Mapping file rules (comments, byte order mark, half-filled rows, duplicate normalised names, normalised hash). n_b held per (patient, schedule) in `BlockFractions`, and `arm` derived from one table. Provenance primitives added. X9 states the `PLAN` convention. The dose header of the first export added to the measurement session.
+
+### STATE.md, 30 September
+
+Last-round paragraph replaced. Versions, code table, test line and the list of where the code is behind the documents updated. The test line is a result from Claude's scratch environment and is marked as such until the run on the project machine replaces it.
+
+### Retired or deleted
+
+- allocator 5.3: the 6.6, 3.4 and 1.3 per cent illustration of P2a and P2b.
+- allocator 5.5: "below the hull in every reachable configuration", replaced by the run.
+- evaluator 8: the `metric = ('gEUD', 0.09)` line of the example record.
 ---
 
 # Cleanup round: road 7.1, allocator 7.1, evaluator 6.7, extractor 5.9
