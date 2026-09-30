@@ -41,7 +41,7 @@ def _wrap(cohort, choice):
     return Allocation(choice = choice, used_pt = used_pt, used_xt = used_xt,
                       mean_dntcp = mean)
 
-def spend_photon_budget(cohort, choice, budget_xt):
+def spend_photon_budget(cohort, choice, budget_xt, keep = None):
     """Spend the photon adaptation budget on the patients not receiving protons.
 
     The rule of Section 5.3: candidates are ranked by the gain of their best
@@ -49,6 +49,15 @@ def spend_photon_budget(cohort, choice, budget_xt):
     to the best such option that fits, in decreasing order, until the budget is
     exhausted. Patients already on protons are untouched. Returns the updated
     choice.
+
+    `keep`, if given, restricts the photon-adapted options that may be
+    assigned (P1x passes the standard schedule). It does not touch what a
+    patient already holds.
+
+    Ties are broken explicitly, so the result does not depend on the order of
+    the strategy list: among options of equal delta NTCP the one with fewer
+    photon minutes is tried first, and among candidates of equal gain the one
+    whose best option is cheaper goes first, then the patient identifier.
 
     Costs and gains are both incremental. A patient whose default arm is
     already photon-adapted, which happens when its reference arm is
@@ -64,13 +73,14 @@ def spend_photon_budget(cohort, choice, budget_xt):
         if here.modality == 'pt':
             continue
         xta = sorted((s for s in opts
-                      if s.occ_xt > 0 and cohort.dntcp(s) > cohort.dntcp(here)),
-                     key = cohort.dntcp, reverse = True)
+                      if s.occ_xt > 0 and cohort.dntcp(s) > cohort.dntcp(here)
+                      and (keep is None or keep(s))),
+                     key = lambda s: (-cohort.dntcp(s), s.occ_xt, s.sid))
         if xta:
             cand.append((pid, xta))
 
-    cand.sort(key = lambda c: cohort.dntcp(c[1][0]) - cohort.dntcp(choice[c[0]]),
-              reverse = True)
+    cand.sort(key = lambda c: (-(cohort.dntcp(c[1][0]) - cohort.dntcp(choice[c[0]])),
+                               c[1][0].occ_xt, c[0]))
 
     for pid, xta in cand:
         here = choice[pid]
@@ -105,11 +115,14 @@ def _refer(cohort, facility, pick, threshold = THRESHOLD):
         if pt:
             cand.append((pid, pick(pt)))
 
-    cand.sort(key = lambda c: cohort.dntcp(c[1]), reverse = True)
+    cand.sort(key = lambda c: (-cohort.dntcp(c[1]), c[0]))
 
     left = facility.budget_pt - sum(s.occ_pt for s in choice.values())
     for pid, s in cand:
-        if cohort.dntcp(s) < threshold:
+        # A patient is referred at delta NTCP >= threshold (the published rule),
+        # and never at zero or negative benefit whatever the threshold.
+        du = cohort.dntcp(s)
+        if du < threshold or du <= 0.0:
             break
         dc = s.occ_pt - choice[pid].occ_pt
         if dc <= left + 1e-9:
@@ -130,11 +143,14 @@ def p1(cohort, facility, threshold = THRESHOLD):
                   threshold)
 
 def p1x(cohort, facility, threshold = THRESHOLD):
-    """As P1, then photon adaptation in decreasing delta NTCP until the photon
-    budget is exhausted. Isolates the value of the adapted photon arm's
-    existence from the value of optimising over it."""
+    """As P1, then photon adaptation on the standard schedule in decreasing
+    delta NTCP until the photon budget is exhausted. Like P1 it holds the
+    fractionation schedule fixed, so P3 - P1x contains the fractionation axis
+    and the optimisation, and P1x - P1 the existence of the adapted photon arm
+    at the standard schedule."""
     alloc = p1(cohort, facility, threshold)
-    choice = spend_photon_budget(cohort, dict(alloc.choice), facility.budget_xt)
+    choice = spend_photon_budget(cohort, dict(alloc.choice), facility.budget_xt,
+                                 keep = lambda s: s.scheme == 'std')
     return _wrap(cohort, choice)
 
 def p2a(cohort, facility):
