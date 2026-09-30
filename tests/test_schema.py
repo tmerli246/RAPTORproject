@@ -1,11 +1,11 @@
-"""Structural invariants of BlockPlan and Strategy.block_plans, introduced at
-version 7 to carry the coverage-rescue mechanism (allocator design 7.0,
-Section 8.2; A24, A29, A30) as metadata ahead of real imaging data.
+"""Structural invariants of BlockPlan and Strategy.block_plans, which carry
+the coverage-rescue mechanism (allocator design 8.2; A24, A29, A30) as
+metadata.
 
 These are schema-level guarantees, checkable without a generator or a
-solver: an empty block_plans is backward compatible with every Strategy
-built before this round, and a populated one must open on the planning
-anatomy, be contiguous, and never mark an adapted arm as rescued.
+solver: an empty block_plans means the block structure is not modelled, and a
+populated one must open on the planning anatomy, be contiguous, and never mark
+an adapted arm as rescued.
 """
 
 import pytest

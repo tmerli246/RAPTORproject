@@ -2,14 +2,14 @@
 
 T7   each multiplier equals the finite difference of the LP optimum with
      respect to its own budget, holding the other fixed
-T8   at C_XT = 0 the two-resource solve reproduces the version 4
-     single-resource result exactly
+T8   at C_XT = 0 the two-resource solve reproduces the single-resource
+     result exactly
 T9   beyond the cohort's photon adaptation demand, lambda_xt is zero and
      every patient not receiving protons holds an adapted photon option
 T15  swapping the roles of the two resources reproduces the mirrored problem
 
 T8 and T9 are the endpoints of the normalised C_XT sweep and double as
-regression tests: the version 4 behaviour must survive as a boundary case
+regression tests: the single-resource behaviour must survive as a boundary case
 rather than be replaced.
 
 Registered as T15, not T10, in allocator design 5.4: T10 there is the no-harm

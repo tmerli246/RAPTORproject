@@ -4,18 +4,17 @@ The evaluator emits Strategy records, the allocator consumes them, and the
 synthetic generator imitates them. Nothing here computes anything beyond
 trivial derived quantities.
 
-Two resources are carried, following version 6 of the allocator design:
-proton machine time and photon adaptation time. No strategy consumes both,
+Two resources are carried, as in the allocator design: proton machine time
+and photon adaptation time. No strategy consumes both,
 which is what makes a patient's option set two chains meeting at XT-NA.
 
 Modality, adaptation and fractionation are chosen once, at prescription. All
 three are scalar fields of this record, so a course that changes any of them
 part-way is not representable rather than merely disallowed. A patient holds
-**seven** strategies (allocator design 7.0, Section 5.1): XT-A, PT-NA and PT-A
-each carry both fractionation schemes, and XT-NA carries **one**, fixed per
-patient by clinical eligibility rather than chosen by the optimisation (A32).
-A27, under which XT-NA could be free under either schedule and a patient could
-hold two zero-cost options, is retired at version 7: there is exactly one.
+**seven** strategies (allocator design 5.1): XT-A, PT-NA and PT-A each carry
+both fractionation schemes, and XT-NA carries **one**, fixed per patient by
+clinical eligibility rather than chosen by the optimisation (A32). A patient
+therefore holds exactly one zero-cost option.
 
 XT-NA is free on both budgets under whichever schedule it carries. It carries
 two roles that are logically distinct and are kept apart here:
@@ -27,19 +26,13 @@ two roles that are logically distinct and are kept apart here:
                     the allocation is to be guaranteed no worse than the
                     reference
 
-`baseline` marks the first role, `admissible` the second. Versions up to 6
-separated them when the coverage screen rejected a patient's non-adapted
-photon plan. At version 7 the screen rescues a failing plan rather than
-removing it (allocator design 7.0, Sections 8.2 and 8.6), so `admissible`
-is expected to read True for XT-NA on every patient once the evaluator is
-updated to the new mechanism; that update is not yet made; `admissible`
-itself is untouched here and still governs which strategies a solver may
-assign.
+`baseline` marks the first role, `admissible` the second. The coverage screen
+rescues a failing plan rather than removing it (allocator design 8.2 and 8.6),
+so `admissible` is expected to read True for XT-NA on every patient.
+`admissible` still governs which strategies a solver may assign.
 
-Coverage rescue is tracked separately, on `block_plans` below, and is
-metadata only in this round: it does not feed NTCP, occupancy or
-admissibility, since dose composition and the screen itself remain frozen
-pending real imaging data (STATE.md Section 6).
+Coverage rescue is tracked separately, on `block_plans` below, and is metadata
+only: it does not feed NTCP, occupancy or admissibility.
 """
 
 from dataclasses import dataclass, field
@@ -59,8 +52,8 @@ class BlockPlan:
                   delivered here (or this is the first block, on the
                   planning anatomy); or 'rescue', a new replan was generated
                   at this block because the plan otherwise due here fell
-                  below the acceptance criterion (allocator design 7.0,
-                  Section 8.2; A24, A29, A30)
+                  below the acceptance criterion (allocator design
+                  8.2; A24, A29, A30)
     source_image  identifier of the image the currently delivered plan was
                   generated on: 'pCT' until the first rescue, the repeat
                   image of the triggering block afterwards. Unchanged across
@@ -137,9 +130,8 @@ class Strategy:
               default, means "block structure not modelled" for this
               strategy, not "zero rescues", and is excluded rather than
               counted as zero by report.rescue_counts. Populated by the
-              synthetic generator for every strategy at version 7; not yet
-              populated by the evaluator, which is frozen pending real
-              imaging data
+              synthetic generator for every strategy; the evaluator does not
+              populate it yet
     """
 
     pid: str
@@ -228,7 +220,7 @@ class Facility:
     cap_pt_min_day  available proton machine minutes per treatment day
     cap_xt_min_day  available photon adaptation minutes per treatment day.
                     A study parameter swept rather than measured; zero
-                    recovers the single-resource problem of version 4
+                    recovers the single-resource problem
     days            treatment days in the horizon
     """
 
@@ -345,16 +337,14 @@ class Cohort:
         the linear and the integer problem. No sign constraint is imposed
         anywhere, and none is needed.
 
-        Under version 7 a patient normally has exactly one free option,
-        XT-NA at whichever schedule clinical eligibility assigns it (A32).
-        A27, under which a patient could hold two such options, one per
-        schedule, is retired: the guarantee no longer has a second option to
-        fall back on if the one XT-NA is lost, which is why the coverage
-        screen rescuing rather than removing it (allocator design 7.0,
-        Section 8.2) is what makes this list provably empty rather than
-        merely usually empty. The count of patients for whom it is not is
-        what would make the no-harm property empirical rather than
-        structural, and it is reported as n_no_free_option.
+        A patient normally has exactly one free option, XT-NA at whichever
+        schedule clinical eligibility assigns it (A32). There is no second
+        option to fall back on if that XT-NA is lost, which is why the
+        coverage screen rescuing rather than removing it (allocator design
+        8.2) is what makes this list provably empty rather than merely
+        usually empty. The count of patients for whom it is not is what would
+        make the no-harm property empirical rather than structural, and it is
+        reported as n_no_free_option.
 
         Where the list is not empty, an optimal allocation may assign a
         strategy of negative delta NTCP to those patients. That is the

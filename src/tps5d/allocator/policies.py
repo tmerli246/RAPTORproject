@@ -17,9 +17,9 @@ be run on identical inputs and differenced directly.
 Ranking convention under two resources (allocator design, Section 5.3): the
 heuristics rank proton upgrades only, and the photon budget is spent by a
 separate rule, adapting photon patients in decreasing delta NTCP until it is
-exhausted. All conventions coincide at C_XT = 0, so the version 4 behaviour is
-recovered by construction. P0 and P1 spend no photon budget: they are the
-reference-study world, in which the adapted photon arm does not exist.
+exhausted. All conventions coincide at C_XT = 0, so the single-resource
+behaviour is recovered by construction. P0 and P1 spend no photon budget: they
+are the reference-study world, in which the adapted photon arm does not exist.
 """
 
 import numpy as np

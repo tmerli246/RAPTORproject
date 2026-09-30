@@ -2,20 +2,19 @@
 
 **Every OpenTPS `readDicomXxx` function reads DICOM files that may not
 match what it expects, and every one of them has a way of saying so that
-is not raising.** Confirmed by reading `opentps.core.io.dicomIO` directly
-on 15 September 2026, not assumed from one function's behaviour applied to
-the rest: `readDicomDose` and `readDicomStruct` return `None` on an
-unrecognised pixel format or a missing `SeriesInstanceUID`; `readDicomPlan`
-does the same on five separate branches, unsupported radiation type, scan
-mode other than `'MODULATED'`, or an unrecognised `SOPClassUID`. A caller
+is not raising.** Read from `opentps.core.io.dicomIO` [OpenTPS source]:
+`readDicomDose` and `readDicomStruct` return `None` on an unrecognised
+pixel format or a missing `SeriesInstanceUID`; `readDicomPlan` does the
+same on five separate branches, unsupported radiation type, scan mode
+other than `'MODULATED'`, or an unrecognised `SOPClassUID`. A caller
 that does not check for `None` gets a confusing `AttributeError` several
 calls downstream, on whatever first touches the missing object, rather
 than a clear signal at the point the file failed to parse. Every function
 in this module checks for `None` and raises immediately, naming the file
 and, where the source makes it identifiable, the reason.
 
-`readDicomCT` has no such branch, confirmed by the same read; it has a
-different failure mode instead, below.
+`readDicomCT` has no such branch; it has a different failure mode instead,
+below.
 """
 
 import hashlib
@@ -37,8 +36,8 @@ def ingest_ct(dcm_files: list):
     """A CT series from a list of per-slice DICOM file paths.
 
     `readDicomCT` derives the z-spacing as `(last - first) / (n - 1)` over
-    the given slices' `ImagePositionPatient`, confirmed against the
-    installed source on 15 September 2026. With one file this is `0/0`:
+    the given slices' `ImagePositionPatient` [OpenTPS source]. With one
+    file this is `0/0`:
     not an exception, a `NaN` spacing that silently corrupts every
     downstream geometry calculation that touches it. With zero files the
     same source indexes `sliceLocation[-1]` on an empty array, `IndexError`
@@ -65,8 +64,7 @@ def ingest_ct(dcm_files: list):
             f"ingest_ct: {len(dcm_files)} file(s) given, need at least 2. "
             f"readDicomCT computes z-spacing as (last - first) / (n - 1) "
             f"over the slices given; with one file this is 0/0, a NaN "
-            f"spacing rather than a raised error (confirmed against the "
-            f"installed source, 15 September 2026)."
+            f"spacing rather than a raised error (OpenTPS source)."
         )
     image = readDicomCT(dcm_files)
 
@@ -204,8 +202,7 @@ def ingest_struct(path: str):
     """A structure set from one RTSTRUCT file.
 
     Raises if `readDicomStruct` returns `None`, which it does when the
-    file has no `SeriesInstanceUID`, confirmed against the installed
-    source on 15 September 2026.
+    file has no `SeriesInstanceUID` [OpenTPS source].
 
     Returns
     -------
@@ -224,8 +221,8 @@ def ingest_plan(path: str):
     """A treatment plan from one RTPLAN file.
 
     Raises if `readDicomPlan` returns `None`, which it does on five
-    separate branches, confirmed against the installed source on 15
-    September 2026: an unsupported photon or ion radiation type, a proton
+    separate branches [OpenTPS source]: an unsupported photon or ion
+    radiation type, a proton
     scan mode other than `'MODULATED'`, an unsupported ion scan mode, or
     an `SOPClassUID` it does not recognise at all. Which of the five fired
     is not distinguishable from the return value alone; the message says

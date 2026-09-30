@@ -4,39 +4,34 @@ Coarse mode generates delta NTCP directly. This is enough to catch trivial
 coding errors in the solver but does not exercise the NTCP layer or the
 composition path.
 
-At version 6 a patient holds two arms per modality per fractionation scheme,
-non-adapted and adapted, and the number of blocks does not enter. `arm_cohort`
-builds one scheme; `two_scheme_cohort` builds both, which is the only place a
-non-concave benefit profile can now arise.
+A patient holds two arms per modality per fractionation scheme, non-adapted and
+adapted, and the number of blocks does not enter. `arm_cohort` builds one
+scheme; `two_scheme_cohort` builds both, which is the only place a non-concave
+benefit profile can arise.
 
-**Version 7.** Two changes, both structural, neither touching NTCP or
-occupancy (allocator design 7.0, evaluator design 6.0; STATE.md Section 6).
+XT-NA carries one fractionation schedule per patient, fixed by a synthetic
+`hypo_frac` draw standing in for the clinical eligibility flag of A32. A
+patient therefore holds exactly one zero-cost option. `two_scheme_cohort`
+emits seven strategies per patient with the photon adapted arm present
+(`x_gain > 0`) and five without; `arm_cohort`, holding one schedule only, emits
+four at most.
 
-XT-NA carries one fractionation schedule per patient rather than two, fixed
-by a synthetic `hypo_frac` draw standing in for the clinical eligibility flag
-of A32. `two_scheme_cohort` therefore emits **seven** strategies per patient
-with the photon adapted arm present (`x_gain > 0`), not eight; `arm_cohort`,
-holding one schedule only, is unaffected in count.
+Every non-adapted strategy (XT-NA, PT-NA) carries a synthetic `block_plans`
+sequence, standing in for the acceptance outcomes that a real export records
+per block (evaluator design 6). Blocks fail independently with a probability
+that decreases after each rescue; see `_rescue_sequence`. This is metadata
+only: it does not feed into `ntcp` or `occ_pt`/`occ_xt`, which do not depend
+on whether a block was rescued, because no dose is composed here. Adapted
+strategies (PT-A, XT-A) carry the trivial all-planned sequence, since their
+block plan is optimised on the anatomy it is evaluated on and cannot fail by
+construction (A1, A4).
 
-Every non-adapted strategy (XT-NA, PT-NA) now carries a synthetic
-`block_plans` sequence, standing in for the coverage-screen outcome the
-evaluator will produce once real imaging is available. Blocks fail
-independently with a probability that decreases after each rescue; see
-`_rescue_sequence`. This is metadata only: it does not feed into `ntcp` or
-`occ_pt`/`occ_xt`, which are unaffected by whether a block was rescued,
-because dose composition itself is out of scope until real patient data
-arrives. Adapted strategies (PT-A, XT-A) carry the trivial all-planned
-sequence, since their block plan is optimised on the anatomy it is evaluated
-on and cannot fail by construction (A1, A4).
-
-The failure probability and its decay are arbitrary placeholders (open
-decision 27 confirmed the *mechanism*, unpriced and persistent rescue, not a
-*rate*): p0 = 0.05, decay = 0.5, both keyword arguments so a real estimate
-can replace them without touching call sites. n_blocks is likewise a
-placeholder pending decision 23 for the hypofractionated schedule; the
-default (3) matches the standard-schedule block count already used
-elsewhere (STATE.md Section 7, test_threshold.py's N_STD = 30 at ten
-fractions per block).
+The failure probability and its decay are placeholders: the allocator design
+fixes the mechanism, unpriced and persistent rescue, not a rate. p0 = 0.05 and
+decay = 0.5 are keyword arguments, so an estimate can replace them without
+touching call sites. n_blocks is likewise a placeholder, pending allocator
+decision 23 for the hypofractionated schedule; the default (3) is the block
+count of a standard schedule of 30 fractions at ten per block.
 """
 
 import numpy as np
@@ -158,8 +153,8 @@ def arm_cohort(n = 8, tau0 = 30.0, dtau = 10.0, n_fx = 30, gain = 0.04,
 
     Each patient has the photon baseline XT-NA, then PT-NA and PT-A. With
     x_gain > 0 an XT-A arm is emitted as well, consuming the photon adaptation
-    budget at dtau_xt minutes per fraction. With x_gain = 0 the cohort is the
-    version 4 single-resource one.
+    budget at dtau_xt minutes per fraction. With x_gain = 0 there is no photon
+    adaptation option and the problem is single-resource.
 
     gain     per-patient scale of the proton adaptation benefit
     x_gain   per-patient scale of the photon adaptation benefit
@@ -167,7 +162,7 @@ def arm_cohort(n = 8, tau0 = 30.0, dtau = 10.0, n_fx = 30, gain = 0.04,
     n_blocks, p_rescue0, rescue_decay
              passed to _rescue_sequence for XT-NA and PT-NA; see the module
              docstring. There is one schedule here, so hypo_frac does not
-             arise: XT-NA is simply the one patient carries
+             arise: XT-NA is the single photon baseline the patient carries
 
     The proton chain has three points, so its hull is either concave or has one
     interior point below it. A richer benefit profile requires two schemes; see
@@ -197,19 +192,30 @@ def arm_cohort(n = 8, tau0 = 30.0, dtau = 10.0, n_fx = 30, gain = 0.04,
 # pen     biological penalty of hypofractionation, in delta NTCP, applied to
 #         the modality benefit of the hypofractionated arms
 # a_mult  ratio of adaptation benefit under hypofractionation to that under the
-#         standard schedule. Above one by the central hypothesis, since
-#         residual geometric error costs more when each fraction carries more
-#         dose
-# The standard non-adapted proton arm is below the hull in every reachable
-# configuration. This is not a choice of parameters: under the per-fraction
-# adaptation charge of A16 the adapted hypofractionated arm costs a fifth of the
-# standard non-adapted one, so it is both cheaper and better unless the
-# biological penalty is large. The cost asymmetry the allocator design records
-# as favouring hypofractionation by n over B appears here mechanically.
+#         standard schedule; the central hypothesis places it above one, and the
+#         shapes span both sides of one
+#
+# Composition of the pooled hull on the proton chain (XT-NA and four proton
+# arms), per cent of 400 generated patients, seed 11, tau0 = 30 min
+# [executed: scripts/shape_fractions.py]:
+#   both_schemes  PT-A under both schedules on the hull for every patient; PT-NA
+#                 hypofractionated for none at dtau 2.4 min, 33% at 9.3 min and
+#                 91% at 25.7 min; PT-NA standard for none
+#   nonconcave    PT-A standard on the hull for every patient, PT-A
+#                 hypofractionated for 96 to 97%; PT-NA hypofractionated for none
+#                 up to dtau 19 min and 3% at 25.7 min; PT-NA standard for none
+#   hyp_dominant  PT-A hypofractionated is the only proton arm on the hull; the
+#                 standard chain and PT-NA hypofractionated are below it
+# The standard non-adapted proton arm is below the hull for these three shapes at
+# every dtau of the sweep. It reaches the hull for a large penalty combined with
+# a long adaptation time (scripts/two_scheme_check.py). The adapted
+# hypofractionated arm costs about a quarter to a third of the standard
+# non-adapted one at dtau up to 15 min, with the default fraction counts and
+# tau_mult: n_hyp tau_mult / n_std + dtau / (n_std / n_hyp * tau0).
 SHAPES = {
-    'both_schemes': dict(pen = 0.000, a_mult = 0.2),   # four rungs on the hull
-    'nonconcave':   dict(pen = 0.020, a_mult = 0.6),   # three, one rung below
-    'hyp_dominant': dict(pen = 0.010, a_mult = 2.5),   # two, no standard arm
+    'both_schemes': dict(pen = 0.000, a_mult = 0.2),   # three or four rungs on the hull
+    'nonconcave':   dict(pen = 0.020, a_mult = 0.6),   # three rungs, two arms below
+    'hyp_dominant': dict(pen = 0.010, a_mult = 2.5),   # two rungs, no standard arm
 }
 
 def two_scheme_cohort(n = 8, shape = 'both_schemes', tau0 = 30.0, dtau = 10.0,
@@ -221,11 +227,9 @@ def two_scheme_cohort(n = 8, shape = 'both_schemes', tau0 = 30.0, dtau = 10.0,
     """Cohort spanning both fractionation schemes: **seven** strategies per
     patient with the photon adapted arm present (x_gain > 0), five without.
 
-    This is where a non-concave benefit profile now comes from. At version 5 it
-    came from the curvature of the benefit in the adaptation count; with two
-    arms per scheme that curvature does not exist, and the shape of a patient's
-    proton frontier is set instead by where the hypofractionated arms fall
-    relative to the standard ones.
+    This is where a non-concave benefit profile comes from. With two arms per
+    scheme the shape of a patient's proton frontier is set by where the
+    hypofractionated arms fall relative to the standard ones.
 
     shape     key of SHAPES, or a dict carrying 'pen' and 'a_mult'
     n_std     fractions on the standard schedule
@@ -254,9 +258,8 @@ def two_scheme_cohort(n = 8, shape = 'both_schemes', tau0 = 30.0, dtau = 10.0,
     Whether they are also the better is what `shape` controls.
 
     XT-NA is emitted once per patient, under whichever schedule hypo_frac
-    assigns it (A32): version 6 emitted it under both schedules, which A27
-    described as a patient holding two zero-cost options. That is retired.
-    PT-NA, PT-A and, where x_gain > 0, XT-A are emitted under both schedules
+    assigns it (A32), so a patient holds exactly one zero-cost option. PT-NA,
+    PT-A and, where x_gain > 0, XT-A are emitted under both schedules
     regardless, since only XT-NA's schedule is an exogenous clinical choice.
     """
     cfg = SHAPES[shape] if isinstance(shape, str) else shape

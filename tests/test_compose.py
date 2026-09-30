@@ -1,14 +1,10 @@
 """Tests for evaluator.compose.
 
-The Section 4.2 worked example (1 Gy / 5 Gy adjacent voxels) is deliberately
-NOT reproduced as a golden test here: recomputing it by two independent
-routes on 14 September 2026, including ntcp.bed/eqd2_from_bed directly,
-gives EQD2(5 Gy, one fraction, alpha/beta 3) = 8.00 Gy, not the 10.00 Gy the
-design document states, and consequently a row-2 result of 4.40 Gy rather
-than 5.40 Gy. Row 1 (3.60 Gy) checks out exactly. This file tests everything
-else, using numbers this test suite computes and owns, plus a set of tests
-confirming compose.py's functions agree with ntcp.py directly rather than
-only producing the right numbers by coincidence.
+Each function is tested against values this suite computes independently of
+the module, and against `ntcp.py` directly, so that agreement with `ntcp.py`
+holds by construction and not by coincidence. The evaluator 4.2 worked example
+(1 Gy next to 5 Gy, alpha/beta 3, target voxel midway) runs through the whole
+chain at the end of the file.
 """
 
 import numpy as np

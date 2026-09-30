@@ -3,11 +3,10 @@
 Evaluator design 4, 5 and 7.1 specify this machinery; this module turns the
 specification into functions, evaluator design 11. It does **not**
 reimplement the biological math: `evaluator/ntcp.py` already has `bed`,
-`eqd2_from_bed` and `geud_from_cumulative_dvh`, confirmed by reading it
-directly on 14 September 2026, and its own docstring states the reason not
-to duplicate them, that a parameter changed in one copy and not the other
-makes a result depend on which module was imported. This module's job is
-narrower and is what `ntcp.py` explicitly does not do, by its own
+`eqd2_from_bed` and `geud_from_cumulative_dvh`, and its own docstring states
+the reason not to duplicate them: a parameter changed in one copy and not
+the other makes a result depend on which module was imported. This module's
+job is narrower and is what `ntcp.py` explicitly does not do, by its own
 docstring: OpenTPS-geometry-aware operations, warping a field, summing
 fields on a shared grid, and constructing the DVH `ntcp.py` says it takes
 as given rather than computing. Every array of actual biology, BED, EQD2,
@@ -218,10 +217,10 @@ def reduce_to_dvh(eqd2_field, roi_mask, *, max_dvh: float = None):
     computing one: this function is that supplier.
 
     `max_dvh`, when not given, is set from the field's own maximum with a
-    5% margin, never left at DVH.computeDVH's 100 Gy absolute default:
-    evaluator design 7.2, verified 11 September 2026, that default would
-    silently truncate accumulated EQD2 in hypofractionated schedules at low
-    alpha/beta, exactly the field this function is built to reduce. At 4096
+    5% margin, never left at DVH.computeDVH's 100 Gy absolute default
+    (evaluator design 7.2): that default would silently truncate accumulated
+    EQD2 in hypofractionated schedules at low alpha/beta, exactly the field
+    this function is built to reduce. At 4096
     bins even a wide margin keeps the bin width near 0.05 Gy on a 200 Gy
     axis, so the margin costs nothing in resolution.
 
@@ -260,15 +259,13 @@ def geud_from_dvh(dvh, n: float) -> float:
     """gEUD via ntcp.geud_from_cumulative_dvh, from a DVH's own histogram.
 
     `n` is the LKB volume parameter, matching ntcp.py's and registry.py's
-    own convention (Model.params['n'] for the 'lkb' kind) rather than the
-    `a = 1/n` this function took in an earlier draft: that was a second,
-    unnecessary convention invented before ntcp.py had been read, and is
-    removed rather than kept alongside the established one.
+    own convention (Model.params['n'] for the 'lkb' kind). There is no
+    second convention `a = 1/n`.
 
     This is a thin unpack-and-delegate: `dvh.histogram` returns exactly the
     (dose_bins, cumulative_volume_pct) pair ntcp.geud_from_cumulative_dvh
-    expects, confirmed by reading both sides on 14 September 2026, so there
-    is no conversion left to do here, only the call.
+    expects [OpenTPS source], so there is no conversion left to do here, only
+    the call.
 
     Returns
     -------

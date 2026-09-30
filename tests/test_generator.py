@@ -1,9 +1,7 @@
-"""Structural tests on the synthetic generator, version 7.
+"""Structural tests on the synthetic generator.
 
-Covers the two mechanical consequences of the September 2026 supervisory
-decision that schema, generator and reporting can verify without
-composition or evaluation, which remain frozen pending real imaging data
-(allocator design 7.0; evaluator design 6.0; STATE.md Section 6):
+Covers two mechanical properties that schema, generator and reporting can
+verify without composition or evaluation (allocator design 5.1 and 8.2):
 
     the option set is seven strategies per patient with the photon adapted
     arm present, not eight, because XT-NA carries one fractionation
@@ -12,8 +10,8 @@ composition or evaluation, which remain frozen pending real imaging data
     report.rescue_counts summarises exactly what that sequence contains
 
 Neither test touches V95% or dose accumulation, since neither exists in the
-generator or the evaluator yet: block_plans is metadata standing in for a
-coverage-screen outcome the evaluator has not yet been updated to produce.
+generator: block_plans is metadata standing in for the acceptance outcomes a
+real export records per block.
 """
 
 import numpy as np

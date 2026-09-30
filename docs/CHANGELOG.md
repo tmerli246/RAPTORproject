@@ -8,7 +8,27 @@ Consolidated version history for the four design documents, kept separate from t
 
 **Full text of superseded versions** is recoverable from git. The entries record what changed and why, and archive retired rows and deleted specification text that may be needed again.
 
-## 2026-09-30, code review round: documents
+## 2026-## 2026-09-30, code review round: material moved out of the code
+
+The docstring and comment pass of the same round removed from the source the history, the dates of verification and the retired identifiers that had accumulated there, so that the code states what it does and the history sits here. Nothing below changes behaviour: the syntax trees of the modules are identical before and after, apart from string constants, of which four are error messages that lost a date of verification (three in `adapters.py`, one in `ingest.py`).
+
+**Dates of verification.** Statements of the form "confirmed against the installed source on 11, 12, 14 or 15 September 2026" were removed from `adapters.py`, `compose.py`, `ingest.py` and `manifest.py`, and replaced by the tag `[OpenTPS source]` where the fact is read from OpenTPS. The record of what was read is extractor 3.4. On 12 September the project's own OpenTPS checkout was found to lack `get_partial_volume_mask` and to carry the older `getBinaryMask`, which differs in measured volume by about 35 per cent on an identical synthetic cylinder (X10).
+
+**Findings recorded in comments.** On 11 September 2026 a cold plan run through `target_metrics` showed that setting `maxDVH` from the observed maximum alone raises `IndexError` in `DVH.computeVx`, since the dose axis never reaches 95 per cent of the prescription; the floor at the prescription closes it. An earlier version of `extract_plan_complexity` in `adapters.py` computed the beam attribute before the plan-type dispatch and failed on a missing `.beams` before reaching its `TypeError`; its own test caught it. `compose.py` had an earlier draft of `geud_from_dvh` that took the power-mean exponent a = 1/n, a second convention invented before `ntcp.py` had been read; it was removed in favour of `params['n']`.
+
+**Version labels.**
+
+- `solve.py`: `solve_dp` and `solve_lp_greedy` are the version 4 solvers, kept unchanged as the independent cross-checks at C_XT = 0. Version 1 of `solve_greedy` reused the linear-relaxation machinery and got two differences from it wrong.
+- `policies.py`: at C_XT = 0 all conventions recover the version 4 behaviour.
+- `report.py`: `rescue_counts` is the version 7 replacement for the removal count of versions 1 to 6, and the coverage screen no longer removes anything. The label `screened out` in the docstring of `admissibility_counts` became `flagged out`, and the count is expected to be zero. The key `n_inadmissible` is unchanged.
+- `schema.py`: `baseline` and `admissible` were separate roles up to version 6, when the screen rejected a non-adapted photon plan. A27, under which XT-NA was free under either schedule and a patient could hold two zero-cost options, was retired at version 7, when XT-NA became one strategy per patient fixed by eligibility (A32).
+- `synth.py`: version 6 emitted XT-NA under both schedules, eight strategies per patient with the adapted photon arm. Version 7 emits seven. At version 5 a non-concave benefit profile came from the curvature of the benefit in the adaptation count, which does not exist with two arms per scheme. The docstring cited open decision 27 for the rescue mechanism and 23 for the block count.
+- `provenance.py`: section references moved from extractor 13 to 12 with the 29 September renumbering.
+
+**A wrong statement replaced.** A comment in `synth.py` gave the cost of the adapted hypofractionated proton arm as a fifth of the standard non-adapted one, and concluded that the standard non-adapted arm is below the hull in every reachable configuration. The cost ratio is n_hyp · tau_mult / n_std + Δτ / (n_std / n_hyp · τ0), about a quarter to a third at Δτ up to 15 min with the default fraction counts, and the arm reaches the hull for a large biological penalty combined with a long adaptation time. The comment now gives the percentages that `scripts/shape_fractions.py` prints (allocator 5.5).
+
+**Tolerance in `dominance.py`.** The comment on the cross-product tolerance gave a scale for the utilities and costs without numbers. It now gives orders of magnitude: costs of order 1e3 min, utilities of order 5e-2, a cross product of order 1e1 and a rounding error of order 1e-14.
+09-30, code review round: documents
 
 **Versions.** `ROAD_TO_PAPER_1.md` 7.1 to 7.2, `allocator_design.md` 7.1 to 7.2, `evaluator_design.md` 6.7 to 6.8, `extractor_design.md` 5.9 to 5.10, `STATE.md` of 29 September to 30 September. No section was renumbered, so no renumbering map. The code tag moves from `design-v6.3` to `design-v6.4` once the suite has been run on both OpenTPS installations.
 

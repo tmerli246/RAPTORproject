@@ -4,12 +4,10 @@ The closed form: dtau* (w) = tau0 * a / (m - w), valid for w < m, where w is the
 photon outside-option value at the prevailing photon price. The whole effect of
 the photon budget on the proton chain passes through w.
 
-At version 6 the chain holds two rungs, PT-NA and PT-A, rather than a ladder of
-adaptation counts. The block count B and the concavity exponent p entered the
-version 5 form only through the factor B^(1-p), and both drop out: with no
-intermediate counts there is no spacing for them to describe. What survives is
-the version 4 form, and the geometry it describes is now a single step rather
-than the first of several.
+Within one schedule the proton chain holds two rungs, PT-NA and PT-A, so the
+geometry is a single step. The block count and any concavity exponent do not
+enter: with no intermediate adaptation counts there is no spacing for them to
+describe.
 
 Checks, following Section 8 of the note:
 1  the empirically located threshold matches the closed form across w
@@ -54,8 +52,8 @@ DTAU_XT = 16.0
 def w_of(lam_xt, x = X):
     """Photon outside-option value at the photon price.
 
-    One adapted photon rung, so the maximum over rungs of version 5 collapses
-    to a single term, floored at zero by the free non-adapted arm.
+    One adapted photon rung, so the maximum over rungs is a single term,
+    floored at zero by the free non-adapted arm.
     """
     return max(0.0, x - lam_xt * N_FX * DTAU_XT)
 

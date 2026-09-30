@@ -12,7 +12,7 @@ profile produces options below the hull, which are removed here rather than
 mis-ranked later.
 
 Under two resources the reductions are scoped **chain by chain** (allocator
-design, Section 5.2): each chain lies on a single cost axis, so the hull
+design 5.2): each chain lies on a single cost axis, so the hull
 argument is unchanged within a chain, and no hull is taken across chains.
 `chains` and `ladders` build the proton chain, on the proton cost axis, which
 is what the greedy heuristics rank under the adopted convention. The photon
@@ -29,8 +29,9 @@ that a chain starts at the origin.
 from collections import namedtuple
 
 # Points closer than this to the hull are treated as lying on it and removed.
-# Utilities are probabilities and costs are minutes, so the natural scale of a
-# cross product is small; the tolerance is deliberately tight.
+# Costs are of order 1e3 min and utilities of order 5e-2, so a cross product is
+# of order 1e1 and its rounding error of order 1e-14; the tolerance sits above
+# rounding and far below any difference of interest.
 TOL = 1e-12
 
 Upgrade = namedtuple('Upgrade', 'pid rank dcost dutil eff')

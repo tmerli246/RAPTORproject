@@ -30,13 +30,13 @@ from .records import DIRSettings, WorkingGrid, CropBounds
 # explicitly, matching the deprecated wrapper's behaviour, rather than left to
 # whatever the next OpenTPS release decides.
 #
-# Applies only when get_partial_volume_mask is present. Confirmed on 12
-# September 2026, against the project's own OpenTPS checkout, that an older
-# getBinaryMask also exists with no threshold or precision concept at all: a
-# hard polygon fill, boolean by construction. The two are not numerically
-# equivalent: ~35% difference in measured volume on an identical synthetic
-# contour. extract_roi_mask raises rather than silently ignoring these two
-# parameters if the environment falls back to that older implementation.
+# Applies only when get_partial_volume_mask is present. An older getBinaryMask
+# exists in some OpenTPS checkouts with no threshold or precision concept at
+# all: a hard polygon fill, boolean by construction. The two are not
+# numerically equivalent: about 35% difference in measured volume on an
+# identical synthetic contour. extract_roi_mask raises rather than silently
+# ignoring these two parameters if the environment falls back to that older
+# implementation.
 ROI_BINARIZATION_THRESHOLD = 0.5
 
 # Supersampling factor for the same call. OpenTPS's own default; passed
@@ -174,17 +174,14 @@ def target_metrics(dose, roi_mask, *, n_fx: int, rx_dose_gy: float):
     course_dose = dose.copy()
     course_dose._imageArray = course_dose._imageArray * n_fx
 
-    # maxDVH must cover two things, not one. It must exceed the actual dose
-    # maximum, or a hot plan is truncated exactly as DVH.computeDVH's own
-    # 100 Gy default would truncate it (extractor 3.4). And it must reach at
-    # least the prescription, or a cold plan's dose-percentage axis never
-    # reaches the 95% query point: DVH.computeVx then calls np.searchsorted
-    # past the end of the array and raises IndexError instead of returning
-    # 0.0. This second failure was found by running this function against a
-    # cold plan on 11 September 2026, after fixing the first: setting
-    # maxDVH from the observed maximum alone, with no floor at the
-    # prescription, silently reintroduces the same class of bug it was
-    # written to close, on the opposite tail.
+    # maxDVH must cover two things. It must exceed the actual dose maximum, or
+    # a hot plan is truncated as DVH.computeDVH's own 100 Gy default would
+    # truncate it (extractor 3.4). And it must reach at least the
+    # prescription, or a cold plan's dose-percentage axis never reaches the
+    # 95% query point: DVH.computeVx then calls np.searchsorted past the end
+    # of the array and raises IndexError instead of returning 0.0. Setting
+    # maxDVH from the observed maximum alone would reintroduce the first
+    # failure's class of bug on the opposite tail.
     max_dvh = max(float(course_dose.imageArray.max()), rx_dose_gy) * 1.05
 
     dvh = DVH(roi_mask, course_dose, prescription=rx_dose_gy)
@@ -227,13 +224,11 @@ def roi_mask_algorithm() -> str:
     environment: 'get_partial_volume_mask' or 'getBinaryMask'.
 
     Not a per-call choice: a fact about the installed OpenTPS, fixed for as
-    long as the environment is. The two are not numerically equivalent,
-    confirmed on 12 September 2026 by rasterising an identical synthetic
-    cylinder both ways: ~35% difference in measured volume. This is exactly
-    the kind of fact the provenance table of extractor 13.1 must record as
-    a mask's `source` once that table exists; there is nowhere else to put
-    it until then, so a caller building provenance manually should call
-    this and record the result now.
+    long as the environment is. The two are not numerically equivalent: about
+    35% difference in measured volume on an identical synthetic cylinder.
+    This is a fact the provenance table (extractor 12.1) records as a mask's
+    `source`; `provenance.mask_method_record` builds the record from this
+    function's result.
     """
     from opentps.core.data._roiContour import ROIContour
     if hasattr(ROIContour, 'get_partial_volume_mask'):
@@ -252,12 +247,11 @@ def extract_roi_mask(rtstruct, dicom_name: str, *, grid: WorkingGrid,
     separate so that no fuzzy-matching logic can end up here by accident.
 
     RTStruct.getContourByName does not raise when the name is absent: it
-    prints a message to stdout and returns None (read from the OpenTPS
-    source on 11 September 2026). Chaining straight into a mask call on
-    that None would raise an AttributeError two calls away from the actual
-    problem. This function raises KeyError immediately instead, with the
-    available names attached, which is what extractor design 9's "an
-    unmapped structure raises" means concretely.
+    prints a message to stdout and returns None [OpenTPS source]. Chaining
+    straight into a mask call on that None would raise an AttributeError two
+    calls away from the actual problem. This function raises KeyError
+    immediately instead, with the available names attached, which is what
+    extractor design 9's "an unmapped structure raises" means concretely.
 
     **Two OpenTPS implementations exist across the environments this
     project runs in, and neither signals a grid mismatch safely.**
@@ -265,9 +259,8 @@ def extract_roi_mask(rtstruct, dicom_name: str, *, grid: WorkingGrid,
     rather than raises when the working grid does not contain the
     contour's bounding box, and that internal logging call is itself
     malformed and raises TypeError under some logging configurations
-    rather than printing, confirmed under pytest's own capture on 11
-    September 2026. `getBinaryMask`, the implementation confirmed present
-    in the project's own OpenTPS checkout on 12 September 2026, gives no
+    rather than printing (observed under pytest's capture).
+    `getBinaryMask`, present in the project's own OpenTPS checkout, gives no
     signal at all: it resamples onto the requested grid with `fillValue=0`
     and silently truncates whatever falls outside it. This function
     therefore checks physical containment itself, from the contour's own
@@ -279,18 +272,17 @@ def extract_roi_mask(rtstruct, dicom_name: str, *, grid: WorkingGrid,
     `binarization_threshold` and `precision` explicit per extractor 3.4,
     since the method's own default for the threshold is `None` and returns
     a float array rather than the bool the schema requires. Where it is
-    absent, `getBinaryMask` is called instead: confirmed by reading its
-    source to be a hard polygon fill with no threshold or precision
-    concept whatsoever, boolean by construction, and empirically confirmed
-    on 12 September 2026 to honour the requested origin, spacing and
-    gridSize exactly. Because the two are not numerically equivalent, a
-    caller who has overridden `binarization_threshold` or `precision` away
-    from their defaults gets a raised error rather than a silently ignored
-    argument if the environment falls back to `getBinaryMask`.
+    absent, `getBinaryMask` is called instead: a hard polygon fill with no
+    threshold or precision concept whatsoever, boolean by construction, that
+    honours the requested origin, spacing and gridSize exactly. Because the
+    two are not numerically equivalent, a caller who has overridden
+    `binarization_threshold` or `precision` away from their defaults gets a
+    raised error rather than a silently ignored argument if the environment
+    falls back to `getBinaryMask`.
 
-    `getBinaryMask` also has its own silent-failure edge case, found by
-    reading its source: a contour on a single z-slice makes it return
-    `imageArray=None` rather than raising. Checked for explicitly below.
+    `getBinaryMask` also has its own silent-failure edge case: a contour on
+    a single z-slice makes it return `imageArray=None` rather than raising.
+    Checked for explicitly below.
 
     Returns
     -------
@@ -315,9 +307,8 @@ def extract_roi_mask(rtstruct, dicom_name: str, *, grid: WorkingGrid,
             f"working grid does not contain the physical extent of "
             f"{dicom_name!r}: contour spans {lo_phys} to {hi_phys} mm, "
             f"grid covers {tuple(grid_lo)} to {tuple(grid_hi)} mm. "
-            f"Neither OpenTPS backend signals this safely on its own "
-            f"(verified 11 and 12 September 2026); this check runs first "
-            f"rather than trusting either."
+            f"Neither OpenTPS backend signals this safely on its own; "
+            f"this check runs first rather than trusting either."
         )
 
     algo = roi_mask_algorithm()
@@ -326,9 +317,8 @@ def extract_roi_mask(rtstruct, dicom_name: str, *, grid: WorkingGrid,
         if (binarization_threshold != ROI_BINARIZATION_THRESHOLD
                 or precision != ROI_RASTER_PRECISION):
             raise ValueError(
-                f"this environment's OpenTPS has no get_partial_volume_mask "
-                f"(confirmed 12 September 2026 against the project's own "
-                f"checkout), so extract_roi_mask falls back to "
+                f"this environment's OpenTPS has no get_partial_volume_mask, "
+                f"so extract_roi_mask falls back to "
                 f"getBinaryMask, a hard polygon fill with no threshold or "
                 f"precision concept at all. binarization_threshold="
                 f"{binarization_threshold} and precision={precision} would "
@@ -344,8 +334,7 @@ def extract_roi_mask(rtstruct, dicom_name: str, *, grid: WorkingGrid,
             raise ValueError(
                 f"getBinaryMask returned an empty mask for {dicom_name!r}: "
                 f"this OpenTPS implementation returns imageArray=None, "
-                f"rather than raising, for a contour on a single z-slice "
-                f"(confirmed against the source on 12 September 2026)."
+                f"rather than raising, for a contour on a single z-slice."
             )
         return mask
 
@@ -361,14 +350,11 @@ def extract_roi_mask(rtstruct, dicom_name: str, *, grid: WorkingGrid,
 def roi_volume_cc(mask) -> float:
     """ROI volume in cm^3 (cc).
 
-    ROIMask.getVolume(inVoxels=False) returns mm^3 despite the name giving
-    no hint of it: confirmed against the installed source on 11 September
-    2026, where the docstring says "otherwise in mm^3" and nothing at the
-    call site does. cc is the unit extractor design's schema uses
+    ROIMask.getVolume(inVoxels=False) returns mm^3, which nothing at the call
+    site says [OpenTPS source]. cc is the unit the extractor schema uses
     (target_vol_cc) and the unit every organ volume in this project is
-    otherwise reported in. This wrapper is the one place the factor of
-    1000 is applied, so no call site has to remember it, and no call site
-    can silently forget it either.
+    otherwise reported in. This wrapper is the one place the factor of 1000
+    is applied, so no call site has to remember it.
     """
     return mask.getVolume(inVoxels=False) / 1000.0
 
@@ -443,14 +429,12 @@ def crop_to_bounds(image, bounds: CropBounds):
 
     Returns a new object of the same type via `.copy()`, which DoseImage,
     ROIMask and CTImage all override to preserve type and deep-copy the
-    array (verified against the installed environment on 11 September
-    2026; the Image3D base class's own copy() does neither: it returns a
-    plain Image3D regardless of the subclass called on. Relying on that
-    base behaviour instead of each subclass's override would silently
-    demote a DoseImage to an Image3D, losing referencePlan and referenceCT,
-    which is a case for calling `.copy()` rather than constructing the
-    array slice directly and skipping it: the override is what keeps the
-    field's identity attached to the crop).
+    array. The Image3D base class's own copy() does neither: it returns a
+    plain Image3D regardless of the subclass called on. Relying on that base
+    behaviour would demote a DoseImage to an Image3D, losing referencePlan
+    and referenceCT, so the subclass override is what keeps the field's
+    identity attached to the crop. The cropped array is a copy, not a view
+    of the source.
     """
     lo, hi = bounds.lo, bounds.hi
     array = image.imageArray[lo[0]:hi[0] + 1, lo[1]:hi[1] + 1, lo[2]:hi[2] + 1].copy()   # not a view of the source
@@ -480,12 +464,10 @@ def extract_plan_complexity(plan):
 
     n_fields is len(plan.beams) in both branches below: RTPlan.beams is
     defined once, on the shared base class both ProtonPlan and PhotonPlan
-    inherit from (confirmed against the installed source on 11 September
-    2026), so the expression is identical either way. It is computed
-    inside each branch rather than once before the dispatch, so that an
-    object of neither type reaches the TypeError below instead of failing
-    on a missing `.beams` attribute first; an earlier version of this
-    function got that ordering wrong and was caught by its own test.
+    inherit from [OpenTPS source], so the expression is identical either
+    way. It is computed inside each branch rather than once before the
+    dispatch, so that an object of neither type reaches the TypeError below
+    instead of failing on a missing `.beams` attribute first.
 
     Proton n_layers is summed here from len(beam.layers) per beam, since
     ProtonPlan itself has no plan-level layer count property: only

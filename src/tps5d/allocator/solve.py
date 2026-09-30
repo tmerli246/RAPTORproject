@@ -4,10 +4,10 @@ Each patient receives exactly one strategy, subject to a proton machine
 capacity constraint and a photon adaptation capacity constraint. This is a
 multiple-choice knapsack problem (MCKP) with two resources.
 
-The objective is the sum of absolute union NTCP, minimised. Since each patient
-takes exactly one strategy, the baseline sum is a constant, so this is the same
-problem as maximising the sum of delta NTCP (test T5). Solving on absolute NTCP
-keeps the baseline out of the optimisation.
+The ILP, the LP and the greedy solvers maximise the sum of delta NTCP; the
+dynamic program minimises the sum of absolute union NTCP. Since each patient
+takes exactly one strategy, the baseline sum is a constant and the two are the
+same problem (test T5).
 
 No constraint of the form delta NTCP >= 0 is imposed, here or anywhere else.
 Where a patient has an assignable option that is free on both budgets and has
@@ -20,17 +20,17 @@ reading of the duals by introducing rows whose multipliers mix into them.
 Where no such option exists, `Cohort.no_free_option` reports it and a negative
 delta NTCP in the optimum is the correct answer, not a defect.
 
-Solver structure, following open decision 15 of the allocator design:
+Solver structure:
 
     solve_exact      integer linear program (scipy HiGHS). The reference
                      solver: with two constraints an ILP is simpler to state
                      correctly than a 2D dynamic program
     solve_lp         the same model with integrality dropped. The duals of the
                      two capacity rows are (lambda_pt, lambda_xt) directly
-    solve_dp         the version 4 dynamic program, single-resource, retained
-                     unchanged as the independent cross-check at C_XT = 0 (T8)
-    solve_lp_greedy  the version 4 greedy relaxation on the proton chain,
-                     retained for the same reason
+    solve_dp         dynamic program, single-resource, the independent
+                     cross-check at C_XT = 0 (T8)
+    solve_lp_greedy  greedy relaxation on the proton chain, the independent
+                     cross-check of solve_lp at C_XT = 0
     solve_greedy     the integer heuristic behind P2b: proton chain only,
                      under the adopted ranking convention
 """
@@ -171,9 +171,9 @@ def solve_lp(cohort, facility):
                       choice = choice, frac = frac)
 
 def solve_dp(cohort, facility, res = RES):
-    """Version 4 exact solver: dynamic programming over discretised proton
-    minutes. Single-resource by construction, retained unchanged as the
-    independent cross-check of the ILP at C_XT = 0 (test T8).
+    """Exact solver: dynamic programming over discretised proton minutes.
+    Single-resource by construction, the independent cross-check of the ILP at
+    C_XT = 0 (test T8).
 
     Raises if any option consumes the photon adaptation budget; restrict the
     cohort to tau_xt == 0 first, which is exactly the C_XT = 0 problem.
@@ -224,10 +224,10 @@ def solve_dp(cohort, facility, res = RES):
     return _wrap_choice(cohort, choice)
 
 def solve_lp_greedy(cohort, facility):
-    """Version 4 linear relaxation: greedy upgrading on the proton chain after
-    dominance removal. Retained as the independent cross-check of solve_lp at
-    C_XT = 0; with photon-adapted options present it solves that limit, since
-    the proton chain excludes them.
+    """Linear relaxation: greedy upgrading on the proton chain after dominance
+    removal. The independent cross-check of solve_lp at C_XT = 0; with
+    photon-adapted options present it solves that limit, since the proton chain
+    excludes them.
 
     Every patient starts on its cheapest surviving option, which is normally
     the reference arm at zero proton cost. Capacity is then spent on the
@@ -282,8 +282,7 @@ def solve_greedy(cohort, facility):
     Under the adopted ranking convention the heuristic ranks proton upgrades
     only; the photon budget is spent by the separate rule in policies.py.
 
-    Two differences from the linear relaxation matter, and version 1 of this
-    function got both wrong by reusing the LP machinery.
+    Two differences from the linear relaxation matter.
 
     The hull reduction is **not** applied. An option below the hull is never
     bought by the LP, which can split its budget between the neighbours, but the

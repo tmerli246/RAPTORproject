@@ -86,8 +86,8 @@ def photon_default_cohort(dtau_xt = 4.0):
         Strategy('p01', 'xt', 'xt', n_fx = 10, tau_pt = 0.0,
                  ntcp = {'tot': BASE}, baseline = True, admissible = False),
         # Two adapted photon options, differing by fractionation scheme rather
-        # than by adaptation count: at version 6 that is the only way a photon
-        # chain can hold two rungs. xt1 is the cheaper and xt2 buys more.
+        # than by adaptation count: that is the only way a photon chain can
+        # hold two rungs. xt1 is the cheaper and xt2 buys more.
         Strategy('p01', 'xt1', 'xt', n_fx = 10, tau_pt = 0.0, tau_xt = dtau_xt,
                  ntcp = {'tot': BASE - 0.01}, adapted = True),
         Strategy('p01', 'xt2', 'xt', n_fx = 5, tau_pt = 0.0,

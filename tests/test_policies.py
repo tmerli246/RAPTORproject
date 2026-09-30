@@ -4,7 +4,7 @@ P3 is an upper bound on every other policy by construction. Nothing else is
 ordered a priori: whether P2b beats P2a on a given cohort is the empirical
 question the comparison exists to answer.
 
-The cohorts include both single-resource ones, guarding the version 4
+The cohorts include both single-resource ones, guarding the single-resource
 behaviour, and two-chain ones exercising the photon budget rule.
 """
 

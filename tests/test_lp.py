@@ -10,11 +10,10 @@ duals of solve_lp are not checked against themselves; conversely T2 checks the
 greedy against solve_lp. The cohorts here are single-resource, which is the
 regime the greedy is retained for.
 
-At version 6 a patient's proton chain holds two arms per fractionation scheme
-rather than a ladder of adaptation counts, so a non-concave benefit profile can
-no longer arise from curvature in the count. It arises instead from where the
-hypofractionated arms fall relative to the standard ones, which is what the
-two_scheme_cohort shapes control. The greedy must attain the LP optimum on all
+A patient's proton chain holds two arms per fractionation scheme, so a
+non-concave benefit profile arises from where the hypofractionated arms fall
+relative to the standard ones, which is what the two_scheme_cohort shapes
+control. The greedy must attain the LP optimum on all
 of them, since the hull reduction is what makes the ordering valid and that
 argument is indifferent to how the points were generated.
 """

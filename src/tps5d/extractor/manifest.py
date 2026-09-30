@@ -197,10 +197,9 @@ def validate_manifest(rows, path = 'manifest') -> None:
 def check_row_consistency(row: ManifestRow, *, dose, plan, struct) -> None:
     """Check one manifest row against the DICOM objects it claims to describe.
 
-    Three checks, each against an attribute confirmed present on the
-    installed OpenTPS's parsed objects by reading readDicomDose,
-    readDicomPlan and readDicomStruct directly on 14 September 2026, not
-    assumed from the DICOM standard in the abstract:
+    Three checks, each against an attribute present on the parsed OpenTPS
+    objects [OpenTPS source: readDicomDose, readDicomPlan, readDicomStruct],
+    not assumed from the DICOM standard in the abstract:
 
     - dose.referencePlan (the RTPLAN SOPInstanceUID readDicomDose records
       from RTDOSE's ReferencedRTPlanSequence) must equal plan.sopInstanceUID:
@@ -375,9 +374,8 @@ def discover_and_load(row: ManifestRow, *, search_dir: str = None):
     function commits to the first, with discovery filling the gap, rather
     than adding path columns the manifest schema does not have. This is a
     decision this project controls, not a RayStation convention to wait
-    for: whoever writes the manifest, most likely a script per open
-    decision 26 of the allocator document, controls the directory layout
-    too.
+    for: whoever writes the manifest controls the directory layout too
+    (extractor design 4, Discovery; 14, open items).
 
     `search_dir` defaults to the directory `row.path` is in (`read_manifest`
     makes `path` absolute); passed explicitly for a layout where the three

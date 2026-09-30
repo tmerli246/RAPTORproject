@@ -13,8 +13,8 @@ The reported quantities, and where each is committed to:
     Pareto and LP dominance counts
     cohort composition by arm
     per-endpoint delta NTCP
-    rescue frequency by arm and by block (version 7, structural metadata
-    only: see rescue_counts and Strategy.block_plans)
+    rescue frequency by arm and by block (structural metadata only: see
+    rescue_counts and Strategy.block_plans)
 
 The sweep functions produce every candidate output of road Section 5.12
 without deciding internally which one is the result: the hierarchy is a
@@ -51,7 +51,7 @@ def summarise(cohort, alloc, facility = None):
         'n_xt_adapted': sum(1 for s in chosen
                             if s.modality == 'xt' and s.adapted),
         'n_adapted': sum(1 for s in chosen if s.adapted),
-        'n_hypo': sum(1 for s in chosen if s.scheme != 'std'),
+        'n_hypo': sum(1 for s in chosen if s.scheme != 'std'),   # includes an XT-NA fixed to hypo by eligibility
         'used_pt_min': alloc.used_pt,
         'used_xt_min': alloc.used_xt,
     }
@@ -76,16 +76,18 @@ def summarise(cohort, alloc, facility = None):
     return rec
 
 def admissibility_counts(cohort):
-    """What the coverage screen removed, and whether a free fallback survived.
+    """What the evaluator flagged as inadmissible, and whether a free fallback
+    survived.
 
     Reported so that the option sets the allocator worked on are visible to a
     reader who cannot inspect them. Three quantities are separated:
 
-        screened out          strategies the evaluator marked inadmissible.
-                              Coverage is the only screen that removes
-                              anything: no harm is a reported diagnostic and
-                              never touches the flag (allocator design,
-                              Section 8.3)
+        flagged out           strategies the evaluator marked inadmissible.
+                              The coverage screen rescues a failing plan
+                              rather than removing it, so this count is
+                              expected to be zero. No harm is a reported
+                              diagnostic and never touches the flag
+                              (allocator design 8.2 and 8.3)
         assignable and worse  assignable strategies whose delta NTCP is not
                               positive. These are never selected while a free
                               reference arm exists, so the count measures how
@@ -119,19 +121,16 @@ def rescue_counts(cohort):
     """Rescue events recorded in each strategy's block_plans.
 
     A rescue is a new replan generated because the plan otherwise due at
-    that block failed the coverage screen (allocator design 7.0, Section
-    8.2). This is the version 7 replacement for the removal count of
-    versions 1 to 6: nothing is removed any more, and rescue frequency is
-    what licenses or withdraws the plausibility of a non-adapted arm
-    (STATE.md Section 6).
+    that block failed the coverage screen (allocator design 8.2). Nothing is
+    removed by the screen, and rescue frequency is what licenses or withdraws
+    the plausibility of a non-adapted arm.
 
     Only strategies carrying a non-empty block_plans contribute. An empty
     list means "block structure not modelled" for that strategy, not "zero
     rescues" (Strategy docstring), so it is excluded from n_modelled rather
-    than counted as a zero. This matters while the evaluator is frozen and
-    only the synthetic generator populates block_plans: a cohort built by
-    hand, as several test fixtures are, reports n_modelled = 0 rather than a
-    false all-clear.
+    than counted as a zero. Only the synthetic generator populates
+    block_plans at present, so a cohort built by hand, as several test
+    fixtures are, reports n_modelled = 0 rather than a false all-clear.
 
     Returns a dict:
         by_arm     {arm label: rescue count}, arm_label conventions
@@ -161,9 +160,9 @@ def dominance_counts(cohort):
     dominance says two arms are not in genuine competition, which is structural
     and largely uninformative. LP dominance says an arm is one the relaxation
     would never buy at any capacity, which is the clinically informative
-    statement. At version 6 the arms in competition on a cost axis differ by
-    adaptation and by fractionation scheme, not by adaptation count. One
-    combined count would let the first swamp the second.
+    statement. The arms in competition on a cost axis differ by adaptation
+    and by fractionation scheme. One combined count would let the first swamp
+    the second.
 
     The reductions are chain-scoped: each chain lies on one cost axis, so the
     counts are computed per chain and summed. No reduction is taken across
