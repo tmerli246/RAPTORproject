@@ -23,7 +23,10 @@ what to record; this module only stores and enumerates what they do.
 """
 
 import csv
+import hashlib
 from dataclasses import dataclass, asdict
+
+from .records import BlockFractions
 
 
 KINDS = ('measured', 'published', 'assumed', 'swept')
@@ -61,6 +64,35 @@ class ProvenanceRecord:
             raise ValueError("key must not be empty")
         if not self.source:
             raise ValueError(f"{self.key}: source must not be empty")
+
+
+def mask_method_record(key: str, method: str) -> ProvenanceRecord:
+    """Provenance of the rasterisation method behind a ROI mask.
+
+    `method` is what `adapters.roi_mask_algorithm()` returns. The two OpenTPS
+    methods differ by about a third in measured volume on one synthetic
+    cylinder, so the method is a property of the mask and is recorded with it
+    (extractor design 12.2).
+    """
+    return ProvenanceRecord(key = key, kind = 'measured',
+                            source = f"ROI rasterisation: {method}",
+                            content_hash = hashlib.sha256(method.encode('utf-8')).hexdigest()[:16])
+
+
+def block_fractions_record(key: str, fractions: BlockFractions,
+                           assumption: str = None) -> ProvenanceRecord:
+    """Provenance of a patient's per-block fraction counts.
+
+    Read off treatment dates, the record is 'measured'. Where the split is set
+    by the study, it is 'assumed' and `assumption` names the register entry.
+    """
+    used = [fractions.pid, fractions.scheme, tuple(int(n) for n in fractions.n_b)]
+    digest = hashlib.sha256(repr(used).encode('utf-8')).hexdigest()[:16]
+    if fractions.source == 'dates':
+        return ProvenanceRecord(key = key, kind = 'measured',
+                                source = 'treatment dates', content_hash = digest)
+    return ProvenanceRecord(key = key, kind = 'assumed',
+                            source = assumption or '', content_hash = digest)
 
 
 class ProvenanceTable:

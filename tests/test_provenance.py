@@ -156,3 +156,27 @@ class TestProvenanceTableCsvRoundTrip:
 
         loaded = ProvenanceTable.read_csv(path)
         assert len(loaded) == 0
+
+
+class TestBlockFractionsAndRecords:
+
+    def test_blocks_must_sum_to_the_course(self):
+        from tps5d.extractor.records import BlockFractions
+        bf = BlockFractions('p1', 'std', (10, 10, 10), 'dates')
+        bf.check_total(30)
+        with pytest.raises(ValueError, match='sums to 30'):
+            bf.check_total(25)
+        with pytest.raises(ValueError, match='source'):
+            BlockFractions('p1', 'std', (10, 10, 10), 'guessed')
+
+    def test_dated_split_is_measured_and_an_assumed_one_names_its_assumption(self):
+        from tps5d.extractor.records import BlockFractions
+        from tps5d.extractor.provenance import block_fractions_record, mask_method_record
+        dated = block_fractions_record('nb:p1/std', BlockFractions('p1', 'std', (10, 10, 10), 'dates'))
+        assert dated.kind == 'measured'
+        assumed = BlockFractions('p1', 'hyp', (2, 2, 1), 'assumed')
+        assert block_fractions_record('nb:p1/hyp', assumed, assumption='A23').kind == 'assumed'
+        with pytest.raises(ValueError, match='source must not be empty'):
+            block_fractions_record('nb:p1/hyp', assumed)
+        m = mask_method_record('mask:p1/rectum', 'getBinaryMask')
+        assert m.kind == 'measured' and 'getBinaryMask' in m.source

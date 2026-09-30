@@ -57,16 +57,29 @@ class DIRSettings:
             )
 
     def content_hash(self) -> str:
-        """Short hash of the settings, for the DVF cache key (extractor 6, 13.1).
+        """Short hash of the settings, for the DVF cache key (extractor 6, 12.1).
 
         Deliberately over the settings alone, not over the registration
         object: RegistrationMorphons rewrites n_processes in place when it
         starts negative, which would make a hash read from the object
         machine-dependent (X2). This hash is computed from what is passed
         in, before any call is made.
+
+        Only the fields the backend uses enter it, so settings that produce
+        the same field hash the same. For the imported backend that is the
+        content of the file, not its path: the same path with a new file
+        must not reuse a cached field. The working grid is not part of the
+        settings, and the field lives on it, so a cache key also needs
+        `WorkingGrid.content_hash()`.
         """
-        payload = repr(sorted(asdict(self).items())).encode('utf-8')
-        return hashlib.sha256(payload).hexdigest()[:16]
+        if self.backend == 'imported':
+            with open(self.imported_path, 'rb') as f:
+                used = [('backend', 'imported'),
+                        ('file', hashlib.sha256(f.read()).hexdigest())]
+        else:
+            used = [('backend', self.backend), ('base_resolution', self.base_resolution),
+                    ('n_processes', self.n_processes), ('try_gpu', self.try_gpu)]
+        return hashlib.sha256(repr(used).encode('utf-8')).hexdigest()[:16]
 
 
 @dataclass(frozen=True)
@@ -87,6 +100,67 @@ class WorkingGrid:
     origin: tuple
     spacing: tuple
     grid_size: tuple
+
+    def __post_init__(self):
+        for name in ('origin', 'spacing', 'grid_size'):
+            if len(getattr(self, name)) != 3:
+                raise ValueError(f"WorkingGrid.{name} must have length 3, got {getattr(self, name)!r}")
+        if not all(s > 0 for s in self.spacing):
+            raise ValueError(f"WorkingGrid.spacing must be positive, got {self.spacing!r}")
+        if not all(int(g) == g and g > 0 for g in self.grid_size):
+            raise ValueError(f"WorkingGrid.grid_size must be positive integers, got {self.grid_size!r}")
+
+    def content_hash(self) -> str:
+        """Short hash of the geometry, the second ingredient of a DVF cache key."""
+        used = [tuple(float(v) for v in self.origin), tuple(float(v) for v in self.spacing),
+                tuple(int(v) for v in self.grid_size)]
+        return hashlib.sha256(repr(used).encode('utf-8')).hexdigest()[:16]
+
+
+BLOCK_FRACTION_SOURCES = ('dates', 'assumed')
+
+
+@dataclass(frozen=True)
+class BlockFractions:
+    """Fractions delivered in each block of one patient's course under one
+    schedule (extractor design 11).
+
+    n_b     fraction count per block, in block order. Zero is allowed, since a
+            recomposition may weight a block out; the total must be positive
+    source  'dates' if read off the treatment dates of the record, 'assumed'
+            if set by the study (an even split, say). Provenance keeps them
+            apart: an assumed split is a swept or assumed parameter, a dated
+            one is measured
+
+    Lives on the extractor side rather than on the strategy: it is one record
+    per (patient, schedule), shared by up to four strategies, and only the dose
+    composition reads it (evaluator design 5.1, BED_b), together with the
+    constraint that the blocks sum to the course.
+    """
+    pid: str
+    scheme: str
+    n_b: tuple
+    source: str
+
+    def __post_init__(self):
+        if self.source not in BLOCK_FRACTION_SOURCES:
+            raise ValueError(f"{self.pid}/{self.scheme}: source must be one of "
+                             f"{BLOCK_FRACTION_SOURCES}, got {self.source!r}")
+        if not self.n_b or not all(int(n) == n and n >= 0 for n in self.n_b):
+            raise ValueError(f"{self.pid}/{self.scheme}: n_b must be non-negative "
+                             f"integers, got {self.n_b!r}")
+        if sum(self.n_b) <= 0:
+            raise ValueError(f"{self.pid}/{self.scheme}: n_b sums to zero")
+
+    @property
+    def n_fx(self) -> int:
+        return int(sum(self.n_b))
+
+    def check_total(self, n_fx: int) -> None:
+        """Raise unless the blocks add up to the course's fraction count."""
+        if self.n_fx != n_fx:
+            raise ValueError(f"{self.pid}/{self.scheme}: n_b sums to {self.n_fx}, "
+                             f"the schedule has {n_fx} fractions")
 
 
 @dataclass(frozen=True)
@@ -117,6 +191,37 @@ class TargetMetrics:
     d95_gy: float
     dmean_gy: float
     dmax_gy: float
+
+
+@dataclass(frozen=True)
+class DoseHeader:
+    """The tags of an RTDOSE file that fix what its array means, as the file states them.
+
+    An absent tag is None: OpenTPS fills defaults (`PLAN`, `GY`, `EFFECTIVE`)
+    in its own object, so the object cannot tell an absent tag from a present
+    one and the file has to be read directly (extractor design 5, X9).
+
+    summation_type  `DoseSummationType`: PLAN, FRACTION, BEAM, ...
+    units           `DoseUnits`: GY or RELATIVE
+    dose_type       `DoseType`: PHYSICAL, EFFECTIVE, ...
+    grid_scaling    `DoseGridScaling`
+    frame_offsets   'increasing' | 'decreasing' | 'single' | 'absent', from
+                    `GridFrameOffsetVector`
+    """
+    summation_type: str = None
+    units: str = None
+    dose_type: str = None
+    grid_scaling: float = None
+    frame_offsets: str = 'absent'
+
+    def describe(self, n_fx_divided: int = None) -> str:
+        """One line for the provenance table; states the conversion if one was made."""
+        text = (f"DoseSummationType={self.summation_type};DoseUnits={self.units};"
+                f"DoseType={self.dose_type};DoseGridScaling={self.grid_scaling};"
+                f"GridFrameOffsetVector={self.frame_offsets}")
+        if n_fx_divided is not None:
+            text += f";divided_by_n_fx={n_fx_divided}"
+        return text
 
 
 @dataclass(frozen=True)
