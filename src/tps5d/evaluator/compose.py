@@ -40,7 +40,7 @@ from opentps.core.data import DVH
 from . import ntcp
 
 
-def compute_bed(dose_per_fraction, n_fx: int, alpha_beta: float):
+def compute_bed(dose_per_fraction, n_b: int, alpha_beta: float):
     """BED_b(x) via ntcp.bed, from the extractor's per-fraction dose.
 
     Parameters
@@ -48,8 +48,9 @@ def compute_bed(dose_per_fraction, n_fx: int, alpha_beta: float):
     dose_per_fraction : DoseImage
         On the block's own native geometry, per extractor design 5:
         conversion precedes deformation, never the reverse.
-    n_fx : int
-        This block's fraction count.
+    n_b : int
+        This block's fraction count, from `records.BlockFractions`. The
+        argument carries the block's count, not the course's.
     alpha_beta : float
         Gy, for the ROI this BED field is being computed for. BED_b depends
         on it, so one field exists per (block, scheme, alpha/beta), per
@@ -59,15 +60,34 @@ def compute_bed(dose_per_fraction, n_fx: int, alpha_beta: float):
     -------
     Same type as `dose_per_fraction`, same geometry, BED values.
     """
-    total_dose = dose_per_fraction.imageArray * n_fx
-    bed_array = ntcp.bed(total_dose, n_fx, alpha_beta)
+    total_dose = dose_per_fraction.imageArray * n_b
+    bed_array = ntcp.bed(total_dose, n_b, alpha_beta)
 
     result = dose_per_fraction.copy()
     result._imageArray = np.asarray(bed_array, dtype=np.float32)
     return result
 
 
-def warp_bed(bed_field, dvf):
+def _same_grid(a, b) -> bool:
+    return (tuple(int(g) for g in a.gridSize) == tuple(int(g) for g in b.gridSize)
+            and np.allclose(a.origin, b.origin) and np.allclose(a.spacing, b.spacing))
+
+
+def _voxels_sampled_outside(dvf, roi_mask, tol_vox: float = 1e-3) -> int:
+    """Number of ROI voxels whose source location lies outside the field grid.
+
+    `deformImage` fills output voxel i with the input at i + u(i) / spacing, in
+    voxel units, and with `fill_value` where that falls outside the input grid.
+    """
+    disp = dvf.displacement.imageArray
+    idx = np.argwhere(np.asarray(roi_mask.imageArray) > 0)
+    source = idx + disp[tuple(idx.T)] / np.asarray(dvf.spacing, dtype = float)
+    upper = np.asarray(dvf.gridSize, dtype = float) - 1.0
+    outside = np.any((source < -tol_vox) | (source > upper + tol_vox), axis = 1)
+    return int(np.count_nonzero(outside))
+
+
+def warp_bed(bed_field, dvf, *, rois, fill_value = 0):
     """Apply an already-computed deformation field to a BED field.
 
     Takes `dvf` as given rather than calling extractor.adapters.get_dvf
@@ -78,22 +98,50 @@ def warp_bed(bed_field, dvf):
     makes evaluator design 4.3's "four applications, not four
     registrations" true in the code, not only in the design document.
 
+    Every argument that changes a result is explicit (extractor 3.4): output
+    voxels whose source location falls outside the BED field's grid get
+    `fill_value`, 0 by default, which shows up as a hole in a DVH and not as
+    a replicated edge value; the type is float32; no GPU.
+
+    Raises ValueError if the BED field and the field are not on the same
+    grid, or if any voxel of any ROI in `rois` is filled rather than sampled:
+    a DVH over a partly filled ROI is a number for a different volume. Pass
+    the ROI masks the warped field will be read on, on the field's grid.
+
     Parameters
     ----------
     bed_field : DoseImage-family object
-        On the block's native geometry, as returned by compute_bed.
+        On the block's native geometry, as returned by compute_bed, and on
+        the same grid as `dvf`.
     dvf : Deformation3D
         fixed = pCT, moving = the block's repeat image, per extractor
-        design 6.2 and X3. Already resampled onto the working grid, per
-        extractor design 6.1: this function does not resample and does not
-        check that it was done, since that is get_dvf's contract, not this
-        function's.
+        design 6.2 and X3, on the working grid as `get_dvf` returns it.
+    rois : sequence of ROIMask
+        On the grid of `dvf`.
 
     Returns
     -------
     Same type as `bed_field`, on `dvf`'s fixed grid.
     """
-    return dvf.deformImage(bed_field)
+    if not _same_grid(bed_field, dvf):
+        raise ValueError(
+            f"warp_bed: the BED field ({tuple(bed_field.gridSize)}, {tuple(bed_field.origin)}, "
+            f"{tuple(bed_field.spacing)}) and the deformation ({tuple(dvf.gridSize)}, "
+            f"{tuple(dvf.origin)}, {tuple(dvf.spacing)}) are not on the same grid"
+        )
+    if dvf.displacement is None:
+        dvf.createDisplacementFromVelocity(tryGPU = False)
+    for roi in rois:
+        if not _same_grid(roi, dvf):
+            raise ValueError(f"warp_bed: ROI {getattr(roi, 'name', '?')!r} is not on the grid of the deformation")
+        n_out = _voxels_sampled_outside(dvf, roi)
+        if n_out:
+            raise ValueError(
+                f"warp_bed: {n_out} of {int(np.count_nonzero(roi.imageArray))} voxels of ROI "
+                f"{getattr(roi, 'name', '?')!r} map outside the BED field's grid and would be "
+                f"filled with {fill_value}."
+            )
+    return dvf.deformImage(bed_field, fillValue = fill_value, outputType = np.float32, tryGPU = False)
 
 
 def sum_bed(bed_fields: list):
@@ -195,6 +243,11 @@ def reduce_to_dvh(eqd2_field, roi_mask, *, max_dvh: float = None):
     note makes the same point for the extractor's own DVH use). Metrics
     read off it, D98/D95/Dmean directly, gEUD via geud_from_dvh below.
     """
+    if not roi_mask.hasSameGrid(eqd2_field):
+        raise ValueError("reduce_to_dvh: the ROI mask and the field are not on the same grid; "
+                         "DVH would resample the mask by interpolation and dilate it.")
+    if not np.any(roi_mask.imageArray):
+        raise ValueError("reduce_to_dvh: the ROI mask is empty")
     if max_dvh is None:
         max_dvh = float(eqd2_field.imageArray.max()) * 1.05
 

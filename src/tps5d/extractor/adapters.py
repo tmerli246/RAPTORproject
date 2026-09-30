@@ -48,8 +48,8 @@ ROI_RASTER_PRECISION = 16
 # Registration (extractor design 6)
 # ---------------------------------------------------------------------------
 
-def get_dvf(*, moving, fixed, settings: DIRSettings, working_spacing):
-    """Deformation field from `moving` onto `fixed`'s grid.
+def get_dvf(*, moving, fixed, settings: DIRSettings, grid: WorkingGrid):
+    """Deformation field from `moving` onto `fixed`'s anatomy, on `grid`.
 
     Keyword-only by construction (extractor design 6.1): RegistrationMorphons
     takes (fixed, moving) in the opposite order, both positional and both the
@@ -59,88 +59,68 @@ def get_dvf(*, moving, fixed, settings: DIRSettings, working_spacing):
 
     fixed = pCT, moving = rCT_j is the project convention (X3): the required
     output is on the pCT grid, and deformImage(moving) returns an image on
-    the fixed grid, which is why pCT must be fixed. Verifying this is the
-    caller's responsibility, exercised by the ground-truth test in
-    test_adapters.py, not this function's: get_dvf takes fixed and moving as
-    given and does not know which anatomy either represents.
+    the fixed grid, which is why pCT must be fixed. `get_dvf` takes fixed and
+    moving as given and does not know which anatomy either represents; the
+    ground-truth test in test_adapters.py exercises the direction.
 
     settings.backend selects the implementation:
       'morphons'  computed here, via RegistrationMorphons
       'imported'  read via OpenTPS's readDicomVectorField from
-                  settings.imported_path, then converted into a Deformation3D
-                  (below). `moving` is not used on this path: the field comes
-                  entirely from the file, and is accepted only so callers do
-                  not need a different call shape per backend. `fixed` is
-                  still used, for the resample onto working_spacing that
-                  both backends share
+                  settings.imported_path and converted into a Deformation3D.
+                  `moving` and `fixed` are not used on this path; they are
+                  accepted so callers do not need a different call shape per
+                  backend. Reading a real RayStation export is untested (X12)
 
-    **The imported backend's two halves have different status.** Reading a
-    real RayStation export remains untested: whether RayStation exports a
-    deformable registration object at all, and in what conventions, is X12
-    and closes only on a real export. The conversion from what
-    `readDicomVectorField` returns, a `VectorField3D`, into the
-    `Deformation3D` this function's callers require, is not blocked on
-    that: confirmed by reading both classes' method sets on 16 September
-    2026 that they do not share an interface (`Deformation3D.deformImage`
-    takes an image object; `VectorField3D.warp` takes a bare array; neither
-    class is a subclass of the other), and verified, first with a synthetic
-    `VectorField3D` and then with a synthetic DICOM deformable registration
-    file built the same way extractor 16's other synthetic DICOM tests are,
-    that `Deformation3D().initFromDisplacementField(vf)` bridges the two
-    correctly. That conversion is implemented and tested here now; only the
-    read of a real file is untested.
+    The returned object carries the displacement field only, resampled onto
+    `grid` (origin, spacing and size). `Deformation3D.deformImage` applies the
+    cached displacement, not the velocity, so the displacement is what is
+    resampled and the velocity is dropped: resampling the velocity alone
+    would leave the applied field on Morphons' own grid while the object
+    reports the working grid. The field is never inverted in this pipeline
+    (X3), which is what the velocity would be needed for. Every resample
+    argument is passed explicitly (extractor 3.4): displacement outside the
+    field's own extent is zero, the type float32, no GPU.
 
-    The field this returns is NOT yet on `working_spacing`: Morphons' own
-    grid is bounded by two floors, base_resolution and the fixed image's
-    grid, and is generally coarser than either (extractor design 6.1). This
-    function resamples explicitly onto working_spacing before returning, so
-    that no caller relies on deformImage's own silent resample (Deformation3D
-    logs "Image and field dimensions do not match" and proceeds regardless,
-    which is exactly the implicit behaviour extractor 3.4 rules out). The
-    imported path resamples the same way, for the same reason.
+    Raises ValueError if the field is not on `grid` afterwards.
 
     Parameters
     ----------
     moving, fixed : Image3D
     settings : DIRSettings
-    working_spacing : tuple of 3 floats, mm
-        The grid the returned field must be resampled onto.
+    grid : WorkingGrid
+        The geometry the field is returned on, and the one the BED fields it
+        will be applied to live on.
 
     Returns
     -------
-    Deformation3D, on `fixed`'s grid at `working_spacing`.
+    Deformation3D, on `grid`.
     """
     if settings.backend == 'imported':
-        vector_field = readDicomVectorField(settings.imported_path)
-
         field = Deformation3D()
-        field.initFromDisplacementField(vector_field)
-
-        field.resample(
-            spacing=working_spacing,
-            gridSize=fixed.gridSize,
-            origin=fixed.origin,
+        field.initFromDisplacementField(readDicomVectorField(settings.imported_path))
+    else:
+        reg = RegistrationMorphons(
+            fixed, moving,
+            baseResolution = settings.base_resolution,
+            nbProcesses = settings.n_processes,
+            tryGPU = settings.try_gpu,
         )
-        return field
+        field = reg.compute()
+        if field.displacement is None:
+            field.createDisplacementFromVelocity(tryGPU = False)
+        field.setDisplacement(field.displacement)
 
-    reg = RegistrationMorphons(
-        fixed, moving,
-        baseResolution=settings.base_resolution,
-        nbProcesses=settings.n_processes,
-        tryGPU=settings.try_gpu,
-    )
-    field = reg.compute()
+    # Deformation3D.resample works in place and returns None: using its return
+    # value would discard the field.
+    field.resample(spacing = grid.spacing, gridSize = grid.grid_size, origin = grid.origin,
+                   fillValue = 0, outputType = np.float32, tryGPU = False)
 
-    # Deformation3D.resample mutates in place and returns None, confirmed
-    # against the installed environment on 11 September 2026; it does not
-    # return a new object. Calling it as `field = field.resample(...)` would
-    # silently discard the field. This is exactly the class of behaviour
-    # extractor 3.4 warns about: taken on trust, it fails without raising.
-    field.resample(
-        spacing=working_spacing,
-        gridSize=fixed.gridSize,
-        origin=fixed.origin,
-    )
+    if (tuple(int(g) for g in field.gridSize) != tuple(int(g) for g in grid.grid_size)
+            or not np.allclose(field.origin, grid.origin)
+            or not np.allclose(field.spacing, grid.spacing)):
+        raise ValueError(f"get_dvf: the field is on grid {tuple(field.gridSize)}, "
+                         f"{tuple(field.origin)}, {tuple(field.spacing)} after resampling, "
+                         f"not on {grid}")
     return field
 
 
@@ -184,6 +164,12 @@ def target_metrics(dose, roi_mask, *, n_fx: int, rx_dose_gy: float):
     TargetMetrics
     """
     from .records import TargetMetrics
+
+    if not roi_mask.hasSameGrid(dose):
+        raise ValueError("target_metrics: the target mask and the dose are not on the same grid; "
+                         "DVH would resample the mask by interpolation and dilate it.")
+    if not np.any(roi_mask.imageArray):
+        raise ValueError("target_metrics: the target mask is empty")
 
     course_dose = dose.copy()
     course_dose._imageArray = course_dose._imageArray * n_fx
@@ -467,7 +453,7 @@ def crop_to_bounds(image, bounds: CropBounds):
     field's identity attached to the crop).
     """
     lo, hi = bounds.lo, bounds.hi
-    array = image.imageArray[lo[0]:hi[0] + 1, lo[1]:hi[1] + 1, lo[2]:hi[2] + 1]
+    array = image.imageArray[lo[0]:hi[0] + 1, lo[1]:hi[1] + 1, lo[2]:hi[2] + 1].copy()   # not a view of the source
 
     cropped = image.copy()
     cropped._imageArray = array

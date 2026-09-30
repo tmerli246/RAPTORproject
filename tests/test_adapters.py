@@ -32,6 +32,7 @@ from opentps.core.processing.imageProcessing.syntheticDeformation import applyBa
 
 from tps5d.extractor.records import DIRSettings, TargetMetrics
 from tps5d.extractor.adapters import get_dvf, target_metrics
+from tps5d.extractor.records import WorkingGrid, CropBounds
 from dicom_builders import write_dvf
 
 
@@ -53,6 +54,11 @@ def _sphere_ct(radius_vox=8.0, seed=0):
 # get_dvf: registration direction and recovery, extractor 3.3 / X3
 # ---------------------------------------------------------------------------
 
+def _grid_of(image):
+    return WorkingGrid(origin=tuple(image.origin), spacing=tuple(image.spacing),
+                       grid_size=tuple(int(g) for g in image.gridSize))
+
+
 class TestGetDVF:
 
     def test_recovers_known_shift(self):
@@ -69,7 +75,7 @@ class TestGetDVF:
 
         settings = DIRSettings(base_resolution=SPACING[0])
         field = get_dvf(moving=moving, fixed=fixed, settings=settings,
-                        working_spacing=SPACING)
+                        grid=_grid_of(fixed))
 
         # field must come out on the fixed grid, at the requested spacing
         assert tuple(field.gridSize) == tuple(fixed.gridSize)
@@ -96,7 +102,7 @@ class TestGetDVF:
 
         settings = DIRSettings(base_resolution=SPACING[0])
         field = get_dvf(moving=moving, fixed=fixed, settings=settings,
-                        working_spacing=SPACING)
+                        grid=_grid_of(fixed))
 
         assert tuple(np.round(field.spacing, 3)) == SPACING
 
@@ -124,7 +130,7 @@ class TestGetDVF:
         settings = DIRSettings(base_resolution=SPACING[0], backend='imported',
                                imported_path=path)
         field = get_dvf(moving=fixed, fixed=fixed, settings=settings,
-                        working_spacing=SPACING)
+                        grid=_grid_of(fixed))
 
         assert tuple(field.gridSize) == dvf_grid
         assert tuple(np.round(field.spacing, 6)) == SPACING
@@ -148,11 +154,11 @@ class TestGetDVF:
                                imported_path=path)
 
         field_a = get_dvf(moving=fixed, fixed=fixed, settings=settings,
-                          working_spacing=SPACING)
+                          grid=_grid_of(fixed))
         field_b = get_dvf(moving=other_moving, fixed=fixed, settings=settings,
-                          working_spacing=SPACING)
+                          grid=_grid_of(fixed))
 
-        assert np.array_equal(field_a.imageArray, field_b.imageArray)
+        assert np.array_equal(field_a.displacement.imageArray, field_b.displacement.imageArray)
 
 
 # ---------------------------------------------------------------------------
@@ -235,6 +241,18 @@ class TestTargetMetrics:
         assert m.dmax_gy == pytest.approx(150.0, rel=0.01)
         assert m.d95_gy == pytest.approx(150.0, rel=0.02)
 
+    def test_a_mask_off_the_dose_grid_or_empty_raises(self):
+        """DVH would resample a mismatched mask by interpolation and dilate it."""
+        dose, mask = self._uniform_dose_and_mask(2.0)
+        shifted = ROIMask(imageArray=mask.imageArray, origin=(1.0, 0.0, 0.0),
+                          spacing=SPACING, name='target')
+        empty = ROIMask(imageArray=np.zeros(GRID, dtype=bool), origin=ORIGIN,
+                        spacing=SPACING, name='target')
+        with pytest.raises(ValueError, match='same grid'):
+            target_metrics(dose, shifted, n_fx=25, rx_dose_gy=50.0)
+        with pytest.raises(ValueError, match='empty'):
+            target_metrics(dose, empty, n_fx=25, rx_dose_gy=50.0)
+
 
 # ---------------------------------------------------------------------------
 # ROI mask extraction, union bounding box, crop
@@ -243,7 +261,6 @@ class TestTargetMetrics:
 from opentps.core.data._rtStruct import RTStruct
 from opentps.core.data._roiContour import ROIContour
 
-from tps5d.extractor.records import WorkingGrid, CropBounds
 from tps5d.extractor.adapters import (
     extract_roi_mask, union_bounding_box, crop_to_bounds, roi_volume_cc,
     roi_mask_algorithm, ROI_BINARIZATION_THRESHOLD,
@@ -592,6 +609,13 @@ class TestCropToBounds:
 
         assert isinstance(cropped, DoseImage)
         assert cropped.imageArray.shape == (10, 10, 5)
+
+    def test_crop_is_a_copy_and_not_a_view_of_the_source(self):
+        dose = DoseImage(imageArray=np.ones((20, 20, 15), dtype=np.float32),
+                         origin=ROI_GRID.origin, spacing=ROI_GRID.spacing)
+        cropped = crop_to_bounds(dose, CropBounds(lo=(5, 5, 5), hi=(14, 14, 9)))
+        cropped.imageArray *= 7.0
+        assert np.all(dose.imageArray == 1.0)
 
 
 # ---------------------------------------------------------------------------
