@@ -175,3 +175,25 @@ def test_rescue_counts_is_zero_at_p0_zero():
     assert counts['by_block'] == {}
     assert counts['n_events'] == 0
     assert counts['n_modelled'] == len(cohort.strategies)   # still modelled
+
+
+# pen_xt: photon chain shape (E-4)
+
+@pytest.mark.parametrize('pen_xt, std_on_hull, hyp_on_hull', [(0.0, False, True), (0.005, True, True)])
+def test_pen_xt_decides_whether_the_standard_photon_arm_is_on_the_photon_hull(pen_xt, std_on_hull, hyp_on_hull):
+    """Photon chain anchored at XT-NA, occupancy proportional to the fraction
+    count. Same benefit under both schedules (pen_xt = 0): the standard XT-A
+    costs six times the hypofractionated one for nothing and is Pareto
+    dominated. Any pen_xt > 0 makes it buy more, so it is on the hull; the
+    hypofractionated one stays on it while pen_xt < g (1 - n_hyp / n_std),
+    g the patient's XT-A benefit."""
+    from tps5d.allocator.dominance import hull
+    cohort = two_scheme_cohort(n = 10, dtau = 13.7, shape = 'both_schemes',
+                               x_gain = 0.02, dtau_xt = 16.0, pen_xt = pen_xt, seed = 3)
+    for pid, opts in cohort.by_patient().items():
+        chain = [s for s in opts if s.tau_pt == 0.0]
+        keep = hull([(s.occ_xt, cohort.dntcp(s)) for s in chain])
+        on = {chain[i].sid for i in keep}
+        g = cohort.dntcp(next(s for s in chain if s.sid == 'xta'))
+        assert pen_xt < g * (1 - 5 / 30)          # the case tested is the middle one
+        assert ('xta' in on) == std_on_hull and ('xtah' in on) == hyp_on_hull, pid

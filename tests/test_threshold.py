@@ -45,6 +45,9 @@ from tps5d.allocator.solve import solve_lp
 from tps5d.generator.synth import arm_cohort
 
 N_FX, TAU0 = 30, 34.2
+# M and A: order of magnitude of the reference study's lung values. X, the scale
+# of the photon adaptation benefit, is illustrative and has no source. The
+# checks are closed forms in these symbols and hold for any positive values.
 M, A, X = 0.069, 0.038, 0.030
 DTAU_XT = 16.0
 
@@ -203,3 +206,61 @@ def test_t14_hull_membership_matches_the_closed_form(x_gain, dtau, cxt_frac):
     n_checked, mismatches = _pt_na_hull_check(cohort, fac)
     assert n_checked > 0, "fixture produced nothing to check"
     assert not mismatches, f"hull membership disagreed with the closed form for {mismatches}"
+
+
+
+# Two schedules: the closed forms of allocator 6.2 on generated cohorts (SC-07)
+#
+# Patient-wise, against dominance.hull on the proton chain, with each patient's
+# own modality benefit m and adaptation benefit a read off the generated
+# strategies. The comparison is against the hull the allocator computes.
+
+def _proton_hull_sids(cohort, pid):
+    from tps5d.allocator.dominance import hull
+    chain = [s for s in cohort.by_patient()[pid] if s.tau_xt == 0.0]
+    keep = hull([(s.occ_pt, cohort.dntcp(s)) for s in chain])
+    return {chain[i].sid for i in keep}
+
+def _m_and_a(cohort, pid):
+    by = {s.sid: s for s in cohort.by_patient()[pid]}
+    m = cohort.dntcp(by['pt'])
+    return m, cohort.dntcp(by['pta']) - m
+
+@pytest.mark.parametrize('dtau', [5.0, 30.0])
+@pytest.mark.parametrize('a_mult', [1.5, 2.5])
+@pytest.mark.parametrize('pen', [0.0, 0.02, 0.06])
+def test_pen_star_decides_whether_the_standard_adapted_arm_is_on_the_hull(pen, a_mult, dtau):
+    """Allocator 6.2: PT-A standard is on the pooled hull iff pen > pen* =
+    a (a_mult - 1), patient-wise, whatever dtau."""
+    from tps5d.generator.synth import two_scheme_cohort
+    cohort = two_scheme_cohort(n = 12, dtau = dtau, shape = dict(pen = pen, a_mult = a_mult), seed = 4)
+    checked = 0
+    for pid in cohort.pids:
+        _, a = _m_and_a(cohort, pid)
+        star = a * (a_mult - 1.0)
+        if abs(pen - star) < 1e-9:
+            continue
+        assert ('pta' in _proton_hull_sids(cohort, pid)) == (pen > star), (pid, pen, star)
+        checked += 1
+    assert checked >= 10
+
+@pytest.mark.parametrize('a_mult', [1.5, 2.0])
+@pytest.mark.parametrize('dtau', [5.0, 15.0, 60.0])
+def test_hypofractionated_non_adapted_arm_obeys_the_per_schedule_threshold(dtau, a_mult):
+    """Allocator 6.2: with pen = 0 and a_mult > 1 the standard adapted arm is
+    below the pooled hull, so the hypofractionated chain is the frontier and
+    PT-NA hyp is on the hull iff dtau >= tau0_hyp a a_mult / m, with tau0_hyp =
+    tau_mult tau0 (generator defaults 1.5 and 30)."""
+    from tps5d.generator.synth import two_scheme_cohort
+    cohort = two_scheme_cohort(n = 12, dtau = dtau, tau0 = 30.0, tau_mult = 1.5,
+                               shape = dict(pen = 0.0, a_mult = a_mult), seed = 4)
+    checked = 0
+    for pid in cohort.pids:
+        m, a = _m_and_a(cohort, pid)
+        assert 'pta' not in _proton_hull_sids(cohort, pid)
+        star = 1.5 * 30.0 * a * a_mult / m
+        if abs(dtau - star) < 1e-6:
+            continue
+        assert ('pth' in _proton_hull_sids(cohort, pid)) == (dtau > star), (pid, dtau, star)
+        checked += 1
+    assert checked >= 10

@@ -125,7 +125,7 @@ def _photon_baseline(pid, base, n_fx, scheme, rng, n_blocks, p_rescue0,
 
 def _proton_and_adapted_photon(pid, base, tau0, dtau, n_fx, scheme, d_mod,
                                d_ada, rng, n_blocks, p_rescue0, rescue_decay,
-                               x_gain = 0.0, dtau_xt = 0.0, tag = ''):
+                               x_gain = 0.0, dtau_xt = 0.0, pen_xt = 0.0, tag = ''):
     """PT-NA, PT-A and, if x_gain > 0, XT-A, all under one schedule.
 
     Emitted for both schedules unconditionally: unlike XT-NA these three do
@@ -133,6 +133,8 @@ def _proton_and_adapted_photon(pid, base, tau0, dtau, n_fx, scheme, d_mod,
 
     d_mod  delta NTCP of non-adapted protons against the reference arm
     d_ada  additional delta NTCP bought by adapting, on either modality
+    pen_xt delta NTCP subtracted from the benefit of XT-A under this schedule;
+           zero leaves it equal to x_gain
     """
     pt_bp = _rescue_sequence(rng, n_blocks, p_rescue0, rescue_decay)
     out = [Strategy(pid, f'pt{tag}', 'pt', n_fx = n_fx, tau_pt = tau0,
@@ -143,7 +145,7 @@ def _proton_and_adapted_photon(pid, base, tau0, dtau, n_fx, scheme, d_mod,
                         adapted = True, block_plans = _planned_sequence(n_blocks)))
     if x_gain > 0.0:
         out.append(Strategy(pid, f'xta{tag}', 'xt', n_fx = n_fx, tau_pt = 0.0,
-                            tau_xt = dtau_xt, ntcp = {'tot': base - x_gain},
+                            tau_xt = dtau_xt, ntcp = {'tot': base - (x_gain - pen_xt)},
                             scheme = scheme, adapted = True,
                             block_plans = _planned_sequence(n_blocks)))
     return out
@@ -212,7 +214,7 @@ SHAPES = {
 
 def two_scheme_cohort(n = 8, shape = 'both_schemes', tau0 = 30.0, dtau = 10.0,
                       n_std = 30, n_hyp = 5, tau_mult = 1.5, gain = 0.04,
-                      x_gain = 0.0, dtau_xt = 0.0, seed = 0,
+                      x_gain = 0.0, dtau_xt = 0.0, pen_xt = 0.0, seed = 0,
                       hypo_frac = HYPO_FRAC,
                       n_blocks_std = N_BLOCKS, n_blocks_hyp = N_BLOCKS,
                       p_rescue0 = RESCUE_P0, rescue_decay = RESCUE_DECAY):
@@ -228,6 +230,16 @@ def two_scheme_cohort(n = 8, shape = 'both_schemes', tau0 = 30.0, dtau = 10.0,
     shape     key of SHAPES, or a dict carrying 'pen' and 'a_mult'
     n_std     fractions on the standard schedule
     n_hyp     fractions on the hypofractionated schedule
+    pen_xt    delta NTCP subtracted from the benefit of the hypofractionated
+              XT-A, as `pen` does for the proton modality step. At the default
+              zero the two XT-A arms buy the same benefit and the standard one,
+              six times the cost, is Pareto dominated for every patient. On the
+              photon chain, anchored at XT-NA, the standard XT-A is on the hull
+              iff pen_xt > 0, and the hypofractionated one iff
+              pen_xt < g (1 - n_hyp / n_std), with g the patient's XT-A benefit
+              (x_gain times its scale). The sign of the hypofractionated photon
+              effect depends on organ and alpha/beta (allocator 10.1); the
+              keyword calibrates nothing
     tau_mult  session-length multiplier under hypofractionation. Above one,
               through higher MU, but sub-linear in dose per fraction
     hypo_frac fraction of the cohort whose XT-NA is fixed to the
@@ -279,5 +291,5 @@ def two_scheme_cohort(n = 8, shape = 'both_schemes', tau0 = 30.0, dtau = 10.0,
             pid, base, tau0 * tau_mult, dtau, n_hyp, 'hyp',
             d_mod[i] - pen, gain * scale[i] * a_mult,
             rng, n_blocks_hyp, p_rescue0, rescue_decay,
-            x_gain = xg, dtau_xt = dtau_xt, tag = 'h')
+            x_gain = xg, dtau_xt = dtau_xt, pen_xt = pen_xt, tag = 'h')
     return Cohort(out)
