@@ -101,17 +101,27 @@ def test_geud_from_dvh_matches_voxelwise():
     bins, vol = cumulative_dvh(dose)
     for n in (0.09, 0.5, 1.0):
         assert geud_from_cumulative_dvh(bins, vol, n) == pytest.approx(
-            geud(dose, n), rel = 0.01)
+            geud(dose, n), rel = 1e-3)
 
 def test_geud_from_dvh_exact_for_uniform_dose():
     dose = np.full(4000, 42.0)
     bins, vol = cumulative_dvh(dose)
-    assert geud_from_cumulative_dvh(bins, vol, 0.09) == pytest.approx(42.0, rel = 0.01)
+    assert geud_from_cumulative_dvh(bins, vol, 0.09) == pytest.approx(42.0, rel = 1e-3)
 
 def test_geud_from_dvh_rejects_an_empty_histogram():
     bins, vol = np.linspace(0, 100, 10), np.zeros(10)
     with pytest.raises(ValueError, match = "empty DVH"):
         geud_from_cumulative_dvh(bins, vol, 0.09)
+
+def test_geud_of_a_float32_field_does_not_overflow_at_small_n():
+    """Voxel doses are float32. The direct power mean needs 60 ** 50 at
+    n = 0.02, which is above the float32 maximum, and returns inf. A uniform
+    field has gEUD equal to its dose. An empty or non-finite field has no gEUD."""
+    dose = np.full(200, 60.0, dtype = np.float32)
+    for n in (0.02, 0.05, 0.09):
+        assert geud(dose, n) == pytest.approx(60.0, rel = 1e-6), n
+    with pytest.raises(ValueError):
+        geud(np.array([], dtype = np.float32), 0.09)
 
 # LKB probit
 def test_ntcp_is_half_at_td50():

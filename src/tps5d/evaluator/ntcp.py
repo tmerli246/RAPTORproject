@@ -53,9 +53,18 @@ def geud(dose, n):
     """Generalized equivalent uniform dose from equal-volume voxel doses.
     dose : voxel doses (Gy)
     n    : LKB volume parameter
+
+    Evaluated in float64 as dmax * mean((d / dmax) ** (1 / n)) ** n. The
+    scaled form cannot overflow for any n > 0, whereas the direct power mean
+    overflows a float32 field at a few tens of Gy for n = 0.05 or below.
     """
-    dose = np.clip(dose, 0.0, None)
-    return np.mean(dose ** (1.0 / n)) ** n
+    d = np.clip(np.asarray(dose, dtype = np.float64), 0.0, None)
+    if d.size == 0 or not np.all(np.isfinite(d)):
+        raise ValueError("gEUD needs a non-empty, finite dose array")
+    dmax = d.max()
+    if dmax <= 0.0:
+        return 0.0
+    return float(dmax * np.mean((d / dmax) ** (1.0 / n)) ** n)
 
 def geud_from_cumulative_dvh(dose_bins, volume_pct, n):
     """gEUD from a cumulative DVH, as returned by OpenTPS DVH.histogram.
@@ -77,10 +86,17 @@ def geud_from_cumulative_dvh(dose_bins, volume_pct, n):
     frac = -np.diff(volume_pct, append = 0.0) / 100.0
     frac = np.clip(frac, 0.0, None)
     total = frac.sum()
-    if total <= 0.0:
-        raise ValueError("empty DVH: no volume in any bin")
-    frac = frac / total
-    return float(np.sum(frac * np.clip(dose_bins, 0.0, None) ** (1.0 / n)) ** n)
+    if not np.isfinite(total) or total <= 0.0:
+        raise ValueError("empty DVH: no volume in any bin, or non-finite volumes")
+    used = frac > 0.0
+    d = np.clip(dose_bins[used], 0.0, None)
+    if not np.all(np.isfinite(d)):
+        raise ValueError("non-finite dose bin with non-zero volume")
+    frac = frac[used] / total
+    dmax = d.max()
+    if dmax <= 0.0:
+        return 0.0
+    return float(dmax * np.sum(frac * (d / dmax) ** (1.0 / n)) ** n)
 
 # NTCP
 # The probit step is separate from the dose reduction so that the Monte Carlo
