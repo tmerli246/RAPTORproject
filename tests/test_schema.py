@@ -10,7 +10,7 @@ anatomy, be contiguous, and never mark an adapted arm as rescued.
 
 import pytest
 
-from tps5d.core.schema import Strategy, BlockPlan
+from tps5d.core.schema import Strategy, BlockPlan, ARM_OF
 
 def _pt(block_plans = None, adapted = False):
     return Strategy('p00', 'sid', 'pt', n_fx = 10, tau_pt = 30.0,
@@ -71,3 +71,27 @@ def test_n_rescues_counts_only_rescue_entries():
             BlockPlan(3, 'rescue', 'rCT3')])
     assert s.n_rescues == 2
     assert len(s.block_plans) == 4
+
+
+# Arm vocabulary and the optional per-block record (extractor design 11)
+
+def test_arm_is_derived_from_modality_and_adaptation_by_one_table():
+    """One correspondence, written once: Strategy.arm, the report label and the
+    manifest vocabulary all read it."""
+    from tps5d.extractor.manifest import VALID_ARMS
+    from tps5d.allocator.report import arm_label
+    seen = set()
+    for (modality, adapted), arm in ARM_OF.items():
+        tau = dict(tau_pt = 30.0) if modality == 'pt' else dict(tau_pt = 0.0)
+        s = Strategy('p00', arm, modality, n_fx = 10, ntcp = {'tot': 0.2},
+                     adapted = adapted, **tau)
+        assert s.arm == arm and arm_label(s) == arm
+        seen.add(arm)
+    assert seen == set(VALID_ARMS) == {'XT-NA', 'XT-A', 'PT-NA', 'PT-A'}
+
+def test_block_plan_new_fields_default_to_not_recorded_and_acceptance_is_boolean():
+    bp = BlockPlan(1, 'planned', 'pCT')
+    assert (bp.dose_image, bp.accept_nominal, bp.accept_robust) == (None, None, None)
+    BlockPlan(1, 'rescue', 'rCT1', dose_image = 'rCT1', accept_nominal = False, accept_robust = True)
+    with pytest.raises(ValueError, match = 'accept_nominal'):
+        BlockPlan(1, 'planned', 'pCT', accept_nominal = 1)

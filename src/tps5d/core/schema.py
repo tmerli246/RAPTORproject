@@ -44,6 +44,12 @@ pending real imaging data (STATE.md Section 6).
 
 from dataclasses import dataclass, field
 
+# The four arms as (modality, adapted). The single place the correspondence is
+# written: `Strategy.arm` reads it and the manifest's arm vocabulary is derived
+# from it.
+ARM_OF = {('xt', False): 'XT-NA', ('xt', True): 'XT-A',
+          ('pt', False): 'PT-NA', ('pt', True): 'PT-A'}
+
 @dataclass
 class BlockPlan:
     """The plan delivered at one block of a non-adapted arm's course.
@@ -62,6 +68,18 @@ class BlockPlan:
                   a rescue's persistence (A29) is read off the sequence
                   without a separate flag for it
 
+    dose_image    identifier of the image the delivered dose was computed on,
+                  which is the block's own repeat image for a planned block
+                  after the first and for a rescue, and differs from
+                  `source_image` when a plan generated earlier is recomputed
+                  on a later image. None: not recorded
+    accept_nominal, accept_robust
+                  outcome of the acceptance criterion for the delivered plan
+                  on this block, nominal and robust (allocator design 8.2).
+                  None: not evaluated or not recorded. The judgement of every
+                  exported plan, failed replans included, lives on the
+                  manifest row; here only the delivered plan is described
+
     A rescue changes neither margin nor setup error (A30): nothing carried
     elsewhere on the Strategy differs between a planned and a rescued block,
     only which image the delivered plan traces back to.
@@ -73,11 +91,19 @@ class BlockPlan:
     block_index: int
     role: str
     source_image: str
+    dose_image: str = None
+    accept_nominal: bool = None
+    accept_robust: bool = None
 
     def __post_init__(self):
         if self.role not in ('planned', 'rescue'):
             raise ValueError(f"block {self.block_index}: role must be "
                              f"'planned' or 'rescue', got '{self.role}'")
+        for name in ('accept_nominal', 'accept_robust'):
+            v = getattr(self, name)
+            if v is not None and not isinstance(v, bool):
+                raise ValueError(f"block {self.block_index}: {name} must be "
+                                 f"True, False or None, got {v!r}")
 
 @dataclass
 class Strategy:
@@ -140,8 +166,14 @@ class Strategy:
             raise ValueError(f"{self.pid}/{self.sid}: the locked baseline consumes neither budget")
         if self.n_fx <= 0:
             raise ValueError(f"{self.pid}/{self.sid}: n_fx must be positive")
+        if not (self.tau_pt >= 0.0 and self.tau_xt >= 0.0):
+            raise ValueError(f"{self.pid}/{self.sid}: occupancies per fraction "
+                             f"must be non-negative and finite numbers")
         if not self.ntcp:
             raise ValueError(f"{self.pid}/{self.sid}: no endpoints")
+        bad = {k: v for k, v in self.ntcp.items() if not 0.0 <= v <= 1.0}
+        if bad:
+            raise ValueError(f"{self.pid}/{self.sid}: NTCP outside [0, 1]: {bad}")
         if self.block_plans:
             first = self.block_plans[0]
             if first.block_index != 0 or first.role != 'planned':
@@ -156,6 +188,11 @@ class Strategy:
                                  f"block plan is optimised on the anatomy it "
                                  f"is evaluated on and cannot be rescued "
                                  f"(A1, A4)")
+
+    @property
+    def arm(self):
+        """'XT-NA', 'XT-A', 'PT-NA' or 'PT-A', from modality and adaptation."""
+        return ARM_OF[(self.modality, bool(self.adapted))]
 
     @property
     def n_rescues(self):
@@ -199,6 +236,12 @@ class Facility:
     cap_xt_min_day: float = 0.0
     days: int = 1
 
+    def __post_init__(self):
+        if not (self.cap_pt_min_day >= 0.0 and self.cap_xt_min_day >= 0.0):
+            raise ValueError("Facility: capacities must be non-negative")
+        if not self.days > 0:
+            raise ValueError("Facility: days must be positive")
+
     @property
     def budget_pt(self):
         return self.cap_pt_min_day * self.days
@@ -216,6 +259,11 @@ class Cohort:
     def __post_init__(self):
         self._base = {}
         for pid, opts in self.all_by_patient().items():
+            sids = [s.sid for s in opts]
+            dup = sorted({x for x in sids if sids.count(x) > 1})
+            if dup:
+                raise ValueError(f"{pid}: strategy identifiers must be unique "
+                                 f"within a patient, repeated: {dup}")
             base = [s for s in opts if s.baseline]
             if len(base) != 1:
                 raise ValueError(f"{pid}: expected exactly one baseline strategy, found {len(base)}")
@@ -223,11 +271,8 @@ class Cohort:
 
     @property
     def pids(self):
-        seen = []
-        for s in self.strategies:
-            if s.pid not in seen:
-                seen.append(s.pid)
-        return seen
+        """Patient identifiers in order of first appearance."""
+        return list(dict.fromkeys(s.pid for s in self.strategies))
 
     def all_by_patient(self):
         """Every strategy keyed by patient, admissible or not.
@@ -363,15 +408,11 @@ class Allocation:
     used_pt: float         # proton machine minutes consumed
     used_xt: float         # photon adaptation minutes consumed
     mean_dntcp: float      # cohort mean, denominator is the full cohort
+    gap: float = None      # relative MIP gap at termination; None unless produced by solve_exact
 
     @property
     def n_pt(self):
         return sum(1 for s in self.choice.values() if s.modality == 'pt')
-
-    @property
-    def n_xt_adapted(self):
-        return sum(1 for s in self.choice.values()
-                   if s.modality == 'xt' and s.adapted)
 
 @dataclass
 class LPSolution:
@@ -398,8 +439,3 @@ class LPSolution:
     choice: dict
     frac: list = field(default_factory = list)
     kept: dict = field(default_factory = dict)
-
-    def n_dominated(self, cohort):
-        """Options removed as LP-dominated, per patient."""
-        return {pid: len(opts) - len(self.kept[pid])
-                for pid, opts in cohort.by_patient().items()}
