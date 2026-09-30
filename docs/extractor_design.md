@@ -1,6 +1,6 @@
 # Extraction Module
 
-Version 5.9. Version history is in `CHANGELOG.md`. Project status and open items are in `STATE.md`.
+Version 5.10. Version history is in `CHANGELOG.md`. Project status and open items are in `STATE.md`.
 
 ## 1. Purpose and scope
 
@@ -32,7 +32,7 @@ The code is tested against two OpenTPS installations: the public release and the
 
 | Requirement | OpenTPS module or class | What it supplies, and the constraint on its use |
 |---|---|---|
-| DICOM ingest | `io.dicomIO`: `readDicomCT`, `readDicomDose`, `readDicomStruct`, `readDicomPlan` | CT, RTDOSE, RTSTRUCT and RTPLAN as typed objects, for photon IMRT/VMAT and proton PBS. Three of the four readers return `None` on unrecognised input and `readDicomCT` returns a `NaN` spacing on a single slice; `extractor/ingest.py` raises on both (Section 3.4) |
+| DICOM ingest | `io.dicomIO`: `readDicomCT`, `readDicomDose`, `readDicomStruct`, `readDicomPlan` | CT, RTDOSE, RTSTRUCT and RTPLAN as typed objects, for photon IMRT/VMAT and proton PBS. Three of the four readers return `None` on unrecognised input, `readDicomCT` returns a `NaN` spacing on a single slice, and `readDicomDose` fills a default for an absent dose tag; `extractor/ingest.py` raises on the first two and reads the dose tags itself (Section 3.4) |
 | Bulk ingest | `io.dataLoader`: `loadData`, `readData` | Recursive directory scan with format detection, for a whole exported case |
 | DIR, computed | `processing.registration.RegistrationMorphons` | Diffeomorphic registration; `compute()` returns a `Deformation3D`. Its argument order is the reverse of this project's, and its three settings select implementations (X2, X3, X5) |
 | DIR, imported | `io.dicomIO.readDicomVectorField` | A DICOM deformable registration object, returned as a `VectorField3D` and converted to `Deformation3D` (Section 6.1) |
@@ -75,22 +75,26 @@ Several OpenTPS entry points this module depends on carry defaults that are wron
 | `ROIContour.get_partial_volume_mask` | Does not raise when the grid does not contain the contour; logs instead, and the logging call itself is malformed and raises `TypeError` under eager formatting | A shifted or truncated mask, or an unrelated error | Checks physical containment from `polygonMesh` before the call |
 | `DVH.computeDVH` | `maxDVH=100.0`, an absolute dose | Silent truncation of accumulated EQD2 on the hypofractionated arms (evaluator 7.2); on a cold plan, `computeVx(95)` indexes past the array | Sets `maxDVH` to `max(observed maximum, prescription) × 1.05` |
 | `RegistrationMorphons` | `tryGPU=True`, `nbProcesses=-1`, `baseResolution=2.5` | Selects among different implementations, and coarsens every field | Passes all three explicitly (X2, X5) |
-| `Deformation3D.deformImage` | Resamples the field itself when grids differ, choosing interpolation and fill value | An interpolation chosen elsewhere, logged only at INFO | Resamples the field explicitly beforehand (Section 6.1) |
-| `Deformation3D.resample` | Mutates in place and returns `None` | Using the return value discards the field | Never uses the return value |
+| `Deformation3D.deformImage` | Resamples the field itself when grids differ, choosing interpolation and fill value | An interpolation chosen elsewhere, logged only at INFO, and a fill value that puts a hole in the DVH without notice | Resamples the field explicitly beforehand (Section 6.1). `warp_bed` passes the fill value, the output type and `tryGPU`, and refuses a ROI that would sample the fill (evaluator 11.1) |
+| `Deformation3D.resample` | Mutates in place and returns `None`. `deformImage` applies the cached displacement, which a resample of the velocity alone does not reach (OpenTPS 3.0.1) | Using the return value discards the field. Resampling the velocity alone leaves the applied field on Morphons' own grid while the object reports the working grid | Never uses the return value, resamples the displacement and drops the velocity (Section 6.1) |
 | `RTStruct.getContourByName` | Prints to stdout and returns `None` on a miss | An error several calls later | Raises `KeyError` naming the attempted name and the structures present (Section 9) |
 | `readDicomDose`, `readDicomStruct`, `readDicomPlan` | Return `None` on unrecognised input: an unsupported pixel format, a missing `SeriesInstanceUID`, five unsupported plan configurations | An `AttributeError` several calls downstream | `ingest.py` raises at once, naming the file and, where identifiable, the reason |
-| `readDicomCT` | Derives z-spacing as `(last − first)/(n − 1)` | `IndexError` on zero files; a `NaN` spacing on one file, which corrupts all downstream geometry silently | `ingest_ct` rejects both cases before the call |
+| `readDicomCT` | Derives z-spacing as `(last − first)/(n − 1)` when both spacing tags are absent, and takes it from `SpacingBetweenSlices` or `SliceThickness` when either is present (OpenTPS 3.0.1). In 3.0.0, the version of the project checkout, the spacing is the mean distance between the slice positions, and a `SliceThickness` that differs by more than 0.001 mm gives a message and no exception | `IndexError` on zero files; a `NaN` spacing on one file; a wrong spacing for a series with a gap, an overlap or a missing slice. Each corrupts all downstream geometry silently | `ingest_ct` rejects zero and one file before the call, and compares the spacing it gets with the slice positions in the headers, raising on uneven steps or on a difference above 0.01 mm |
+| `readDicomDose` | Fills `DoseSummationType = PLAN`, `DoseUnits = GY` and `DoseType = EFFECTIVE` when a tag is absent, so the object cannot tell an absent tag from a present one. For a `GridFrameOffsetVector` that decreases it flips the array and places the origin one slice thickness off (OpenTPS 3.0.1) | A dose of unknown scale is taken as a plan total or per fraction on the strength of a default, and coverage is computed on it; a dose displaced by one slice | `ingest_dose` reads the tags from the file with pydicom and raises where `DoseSummationType`, `DoseUnits` or `DoseGridScaling` is absent, where the units are not `GY`, where the summation type is neither `PLAN` nor `FRACTION`, and where the offset vector decreases. A `PLAN` dose is divided by the schedule's `n_fx` (Section 5) |
+| `DVH` constructor | Computes the histogram at `maxDVH = 100` Gy at construction, and resamples a mask on another grid by interpolation (OpenTPS 3.0.1) | Wasted work, and a dilated mask on a grid mismatch | `target_metrics` and `reduce_to_dvh` raise unless the mask is on the dose's grid and non-empty |
+
+The entries of this table that carry a version were read from the OpenTPS 3.0.1 source. Each is confirmed against the project checkout at the first measurement session (X10). The checkout is OpenTPS 3.0.0, and only the `readDicomCT` row has been read there so far.
 
 ### 3.5 Modules and tests
 
 | Module | Contents | Tests |
 |---|---|---|
-| `extractor/records.py` | `DIRSettings` (with `content_hash`), `WorkingGrid`, `CropBounds`, `TargetMetrics`, `PlanComplexity`. No OpenTPS import | `test_adapters.py` |
+| `extractor/records.py` | `DIRSettings` (with `content_hash`), `WorkingGrid` (validated, with `content_hash`), `BlockFractions`, `DoseHeader`, `CropBounds`, `TargetMetrics`, `PlanComplexity`. No OpenTPS import | `test_adapters.py`, `test_provenance.py` |
 | `extractor/adapters.py` | `get_dvf`, `target_metrics`, `extract_roi_mask`, `extract_roi_mask_by_canonical_name`, `roi_mask_algorithm`, `union_bounding_box`, `crop_to_bounds`, `roi_volume_cc`, `extract_plan_complexity` | `test_adapters.py`: registration against a synthetic-deformation ground truth, both DVF backends, target-metric unit conventions, mask extraction and its guards, crop arithmetic, plan complexity for both modalities |
-| `extractor/ingest.py` | `ingest_ct`, `ingest_dose`, `ingest_struct`, `ingest_plan` | `test_ingest.py`: synthetic DICOM for all four readers (`tests/dicom_builders.py`), plus the `None`-return branches via substitution, since a valid file never exercises them |
+| `extractor/ingest.py` | `ingest_ct`, `ingest_dose`, `read_dose_header`, `dose_header_record`, `ingest_struct`, `ingest_plan` | `test_ingest.py`: synthetic DICOM for all four readers (`tests/dicom_builders.py`), plus the `None`-return branches via substitution, since a valid file never exercises them |
 | `extractor/roi_mapping.py` | `load_roi_mapping`, `resolve_dicom_name` | `test_roi_mapping.py` |
-| `extractor/manifest.py` | `read_manifest`, `check_row_consistency`, `check_manifest`, `discover_and_load` | `test_manifest.py`, including discovery on synthetic RTPLAN and RTSTRUCT files |
-| `extractor/provenance.py` | `ProvenanceRecord`, `ProvenanceTable` | `test_provenance.py` |
+| `extractor/manifest.py` | `read_manifest`, `validate_manifest`, `check_row_consistency`, `check_dose_scale`, `check_manifest`, `discover_and_load` | `test_manifest.py`, including discovery on synthetic RTPLAN and RTSTRUCT files |
+| `extractor/provenance.py` | `ProvenanceRecord`, `ProvenanceTable`, `mask_method_record`, `block_fractions_record` | `test_provenance.py` |
 
 ## 4. Plan identity and the export manifest
 
@@ -104,8 +108,12 @@ The store is keyed by (patient, block, plan), with arm, schedule, role and image
 - `source_image_uid` is the image the plan was generated on; `dose_image_uid` is the image this dose is computed on. They differ for a non-adapted plan recomputed on a repeat image, and coincide for a plan generated on the block's own image.
 - `n_fx` and `dose_per_fx_gy` hold the schedule (n, d) as two columns, since a pair has no unambiguous single-field CSV representation; they are reconstructed as the pair on read.
 - `accept_nominal` and `accept_robust` record the RayStation acceptance judgement for this plan on this block, nominal and robust (allocator 8.2; evaluator 6.1, 6.2).
+- `accept_nominal` and `accept_robust` are `1`, `0` or empty, empty meaning not evaluated. A file with the first eight columns also reads, with `dose_image_uid` and both outcomes unset.
+- A relative `path` resolves against the directory of the manifest, so that a manifest reads the same from any working directory. An absolute path is kept.
 
 The number of rows is not fixed in advance, since rescues depend on the anatomy. The planner, or a planning script, writes the manifest as each plan is generated and judged, so the rescue sequence of every non-adapted arm is recorded where it is decided. If plan generation is scripted, the script writes the manifest and its manual cost disappears (allocator decision 26).
+
+**The manifest is validated as a whole on read**, every problem reported in one exception that names the file and the line: `n_fx` a positive integer and `dose_per_fx_gy` finite and positive; one dose per (plan, block); one arm and one schedule per `plan_uid`; block 0 `planned`; a rescue only on a non-adapted arm; and the block indices of each (arm, schedule) running from 0 without a gap, where several rows may share a block (a rejected recomputation and its rescue).
 
 **DICOM relations are the consistency check.** RTDOSE references its RTPLAN, which references its structure set and frame of reference. This check cannot verify arm, margin or role, which are not represented in DICOM. It verifies that each dose object is tied to the images the manifest assigns it, which is exactly the error a hand-written manifest produces: a row displaced by one. The extractor raises where the two disagree rather than preferring either.
 
@@ -115,9 +123,13 @@ The number of rows is not fixed in advance, since rescues depend on the anatomy.
 - the manifest's `plan_uid == plan.sopInstanceUID`;
 - `plan.frameOfReferenceUID == struct.frameOfReferenceUID`, with the frame of reference standing for the image (X8).
 
+`check_manifest` takes the loaded objects keyed by (plan_uid, block_index), since one `plan_uid` appears in several rows.
+
+**Dose scale.** `check_dose_scale` compares the target's mean dose per fraction with the row's `dose_per_fx_gy` and raises outside a ratio of 0.5 to 1.5, stating both hypotheses: an array that is not per fraction, or a wrong `dose_per_fx_gy`. The band separates a factor of 3 or more, such as a plan-total dose or a dose scaled twice. It does not judge plan quality (Section 5, X9).
+
 **What this check cannot verify for recomputed doses.** For a non-adapted plan recomputed on a repeat image, the referenced plan is the pCT plan, so the plan's frame of reference is the pCT's on every block. The chain above therefore cannot tell block 2 from block 3 of the same non-adapted arm, and these rows, which share one plan UID, are the ones most prone to displacement. The check must compare `dose_image_uid` against the dose object's own frame of reference or referenced image rather than the plan's. How that is read depends on the route by which RayStation recomputes a plan on a repeat image (allocator decision 30); it is implemented once an export can be inspected.
 
-**Discovery.** A manifest row's `path` names the dose file. `discover_and_load` finds the row's plan and structure set in the same directory, by following `dose.referencePlan` and `plan.referencedStructureSetSequence` to matching `SOPInstanceUID`s, with an explicit search directory as an override (X11). It is the one manifest function that loads DICOM, through `ingest.py`.
+**Discovery.** A manifest row's `path` names the dose file. `discover_and_load` finds the row's plan and structure set in the same directory, by following `dose.referencePlan` and `plan.referencedStructureSetSequence` to matching `SOPInstanceUID`s, with an explicit search directory as an override (X11). It is the one manifest function that loads DICOM, through `ingest.py`, and it passes the row's `n_fx` to `ingest_dose` (Section 5).
 
 ## 5. Dose storage
 
@@ -137,6 +149,8 @@ Three rules, the first two lossless for the endpoints in use.
 - The conversion to BED is performed before deformation, because it is nonlinear and does not commute with interpolation. The warped object is therefore a BED field, which depends on the schedule, the block's fraction count and the structure's α/β, and is not unique. Warped fields belong to the evaluator's cache, not to the extractor's store.
 
 The extractor stores physical dose per fraction per block on its own image, with the fraction counts and the deformation fields. Everything downstream is recomputable.
+
+**Dose scale at ingest.** RayStation is expected to export the beam set dose of the whole plan, tagged `DoseSummationType = PLAN`. `ingest_dose` divides such an array by the `n_fx` of the schedule the file belongs to and sets the object's summation type to `FRACTION`. A file tagged `FRACTION` is left as it is. An absent tag, units other than `GY`, any other summation type and a decreasing `GridFrameOffsetVector` raise. The tags read from the file (`DoseSummationType`, `DoseUnits`, `DoseType`, `DoseGridScaling`, the direction of `GridFrameOffsetVector`) and the division are recorded in the provenance table by `dose_header_record`. `DoseType` is recorded and not checked, since RBE-weighted proton dose may be labelled `EFFECTIVE` (X9). Whether the exporter writes the plan total under `PLAN` is closed by the first export (Section 14). `check_dose_scale` (Section 4) guards against the alternative, a dose already per fraction that carries the tag `PLAN` and would be divided twice.
 
 **Dose provenance.** Physical dose is computed in RayStation for both modalities and imported; OpenTPS performs no dose calculation for this study, including no use of its photon CCC implementation (evaluator E16; allocator decision 25).
 
@@ -161,7 +175,7 @@ Access goes through `store_plan` and `load_plan`, so the on-disk container is a 
 | Reduce to DVH | Evaluator, via the OpenTPS DVH | Low | Yes. This is the cache boundary | Accumulated field, ROI mask |
 | NTCP | Evaluator | Low | Never | Recompute |
 
-Deformation fields are cached explicitly, keyed by moving image, fixed image and a hash of the DIR settings. They are the expensive and version-sensitive step, and caching warped dose without recording the field that produced it makes staleness impossible to reason about. The evaluator applies each field several times, once per (schedule, α/β) combination, so the separation between registration and application is load-bearing: registration is performed once, application is cheap.
+Deformation fields are cached explicitly, keyed by moving image, fixed image, a hash of the DIR settings and a hash of the working grid, since the field lives on that grid. They are the expensive and version-sensitive step, and caching warped dose without recording the field that produced it makes staleness impossible to reason about. The evaluator applies each field several times, once per (schedule, α/β) combination, so the separation between registration and application is load-bearing: registration is performed once, application is cheap.
 
 Caches are keyed by content hash rather than by filename, and the hash is recorded in the provenance table.
 
@@ -169,14 +183,14 @@ Caches are keyed by content hash rather than by filename, and the hash is record
 
 The accumulation ordering (evaluator 4) converts dose to BED before deformation, so the field must be applied in OpenTPS to BED arrays, not by RayStation's own dose mapping, which deforms physical dose. The field itself can come from either of two backends behind one interface:
 
-    get_dvf(*, moving, fixed, settings, working_spacing) -> Deformation3D
+    get_dvf(*, moving, fixed, settings, grid) -> Deformation3D
 
 - **Computed** in OpenTPS with Morphons. This is the backend in use: the field has to be applied in OpenTPS anyway, and computing it there does not depend on RayStation exporting its registration (X12).
 - **Imported** from a RayStation deformable registration object, read by `readDicomVectorField`. The reference study mapped dose with RayStation's DIR, so this backend is kept for continuity with it.
 
-Both are implemented, and both return a `Deformation3D` resampled onto the working grid, so callers cannot tell them apart. The study does not need to reproduce the reference study's registration, but the difference the two backends produce in gEUD on the organs driving the endpoints is measured on the first cases and reported, which converts a choice of registration provenance into evidence (X2).
+Both are implemented, and both return a `Deformation3D` resampled onto the working grid `grid` (a `WorkingGrid`), so callers cannot tell them apart. The study does not need to reproduce the reference study's registration, but the difference the two backends produce in gEUD on the organs driving the endpoints is measured on the first cases and reported, which converts a choice of registration provenance into evidence (X2).
 
-**The imported field is converted.** `readDicomVectorField` returns a `VectorField3D`, which shares no interface with `Deformation3D`: `deformImage` takes an image object, `VectorField3D.warp` takes a bare array, and neither class inherits from the other. `Deformation3D().initFromDisplacementField(vector_field)` builds the `Deformation3D` from the field's own origin, spacing and angles. The conversion is tested on a synthetic DICOM deformable registration object with a known uniform displacement, recovered after conversion and resampling. `DIRSettings.imported_path` names the file to read, is validated at construction, and `moving` is unused on this path.
+**The imported field is converted.** `readDicomVectorField` returns a `VectorField3D`, which shares no interface with `Deformation3D`: `deformImage` takes an image object, `VectorField3D.warp` takes a bare array, and neither class inherits from the other. `Deformation3D().initFromDisplacementField(vector_field)` builds the `Deformation3D` from the field's own origin, spacing and angles. The conversion is tested on a synthetic DICOM deformable registration object with a known uniform displacement, recovered after conversion and resampling. `DIRSettings.imported_path` names the file to read, is validated at construction, and `moving` is unused on this path. The content of the file, not its path, enters the settings hash, so a new file at the same path does not reuse the cached field.
 
 **The arguments are keyword-only.** `RegistrationMorphons(fixed, moving, ...)` takes the two images in the opposite order to the interface above, positionally and of the same type. A transposition would not raise; it would return a plausible field in the wrong direction. Keyword-only arguments make the transposition unexpressible. The test of Section 3.3 remains necessary.
 
@@ -191,7 +205,7 @@ Both are implemented, and both return a `Deformation3D` resampled onto the worki
 - **`baseResolution` below the working-grid spacing is excluded.** At a 2.0 mm grid, 1.5 mm costs 38.3 s against 28.9 s at 2.0 mm and returns a coarser field, 2.13 mm against 2.00 mm, because the final rung is cut off by the working grid.
 - **`baseResolution` equal to the working-grid spacing is the working setting.** The last rung then lands on the grid, giving the finest field the ladder can deliver. Whether that is worth its cost against a coarser setting depends on what field resolution costs in gEUD on real anatomy, which is measured on the first case (X5).
 
-The adapter resamples the returned field explicitly onto the working grid and never uses what `compute()` returns as it stands.
+The adapter resamples the returned field explicitly onto the working grid and never uses what `compute()` returns as it stands. `Deformation3D.deformImage` applies the cached displacement and not the velocity, so what is resampled is the displacement and the velocity is dropped; the pipeline inverts no field (X3), which is what the velocity would be needed for. `get_dvf` raises if the field is not on the working grid after the resample.
 
 ### 6.2 Direction of the deformation
 
@@ -259,6 +273,8 @@ Matching is on the normalised form, but the value returned is the contour's own 
 
 OpenTPS provides no mapping and no raise: `getContourByName` prints and returns `None` on a miss (Section 3.4), so the raise is this project's wrapper. The contents of the mapping file need a real RTSTRUCT or a template from the clinical partner. The mechanism is built now; `config/roi_mapping.csv` ships as a header-only placeholder.
 
+The mapping file is read with comment lines (`#`), blank lines and a UTF-8 byte order mark accepted. A row that names only one of the two structures raises with its line number, since a half-filled row is an unmapped structure, and so does a canonical name that appears twice. Two contours of one RTSTRUCT that normalise to the same name raise, since the first would otherwise be returned without notice. The content hash is taken over the file with line endings and byte order mark normalised, so that a checkout with different line endings hashes the same.
+
 **Rasterisation depends on the installation.** The public OpenTPS release provides `get_partial_volume_mask`, a partial-volume method binarised at a threshold. The project's checkout does not; its `getBinaryMask` is a hard polygon fill with no threshold. On an identical synthetic cylinder the two differ by about 35 per cent in masked volume. `extract_roi_mask` detects which is present through `roi_mask_algorithm()` and dispatches, and raises if `binarization_threshold` or `precision` are set where they would be ignored. The polygon-fill method returns `imageArray=None` on a contour confined to a single slice; `extract_roi_mask` raises on that case. Which method produced a mask changes the number, so it is recorded in the provenance table (X10).
 
 ## 10. Relation to the NTCP model registry
@@ -302,7 +318,9 @@ The registry belongs to the evaluator (evaluator 8). Two obligations remain here
 
 **Per (patient, block, schedule):** n_b, the fraction count of the block, derived from acquisition dates or set by hand and tagged `assumed` (evaluator E21).
 
-**Per registration:** dvf, keyed by (moving, fixed, hash of the DIR settings).
+In the code, n_b is a `BlockFractions` record per (patient, schedule): the counts in block order, a source of `dates` or `assumed`, and a check that they sum to the schedule's `n_fx`. It is not a field of the strategy, since up to four strategies of one schedule would share it. `arm` is derived from modality and adaptation through one table shared with the manifest, and is not stored beside them. `dose_image`, `accept_nominal` and `accept_robust` are optional fields of the block plan, unset where the source did not record them.
+
+**Per registration:** dvf, keyed by (moving, fixed, hash of the DIR settings, hash of the working grid).
 
 **Per (patient, schedule):** fx_scheme (n, d) and rx_dose, the total prescribed dose. Indexed by patient as well as schedule, so that it survives either answer to whether the prescription varies by patient (Section 14).
 
@@ -333,7 +351,7 @@ The requirement is **enumerability**: the set of parameters to perturb must be l
 
 Where `kind` is `assumed`, `source` names an assumption ID from Section 13 or from the allocator and evaluator registers, so the assumptions register is checkable against the data rather than parallel to it.
 
-`extractor/provenance.py` implements this as `ProvenanceRecord` and `ProvenanceTable`. `table.query(kind='assumed')` returns the complete list of assumed parameters. `add` raises on a key already present, since two records for the same primitive most likely mean the same quantity was tagged from two call sites; `update` is the explicit method for a deliberate re-extraction. `write_csv` and `read_csv` persist a table, and `read_csv` raises on a duplicate key as `add` would. The module does not decide which quantities are primitives; that is the caller's judgement, following Section 12.2.
+`extractor/provenance.py` implements this as `ProvenanceRecord` and `ProvenanceTable`. `table.query(kind='assumed')` returns the complete list of assumed parameters. `add` raises on a key already present, since two records for the same primitive most likely mean the same quantity was tagged from two call sites; `update` is the explicit method for a deliberate re-extraction. `write_csv` and `read_csv` persist a table, and `read_csv` raises on a duplicate key as `add` would. The module does not decide which quantities are primitives; that is the caller's judgement, following Section 12.2. `mask_method_record`, `block_fractions_record` and, in `ingest.py`, `dose_header_record` build the records of three primitives of Section 12.2: the rasterisation method behind a mask, the block fraction counts with their source, and the tags of a dose file with the conversion made.
 
 ### 12.2 Granularity
 
@@ -362,7 +380,7 @@ The allocator uses the prefix A and the evaluator E; this document uses **X**. W
 | X6 | Worst-case is stored as per-scenario DVHs per ROI plus derived scalars, and not as dose grids | Follows from evaluator E5 (Section 7.1) | Anything not derivable from a DVH is lost, in particular spatial location |
 | X7 | RayStation can export scenario doses, or per-scenario DVH data, in a form the extractor can read | **Unverified.** The conformance statements consulted name the beam set dose and not evaluation or scenario doses; some export capability is documented as available only in non-clinical versions | The robust acceptance outcome is recorded at plan generation regardless (Section 4), so the descriptive counts survive. Scenario DVHs would be lost, or would describe voxel-wise aggregates rather than scenarios. If recomputed doses on repeat images are also evaluation doses, the same question applies to them (allocator decision 30) |
 | X8 | Plan identity (arm, block, role, schedule) comes from the export manifest; DICOM relations serve as a consistency check, with the frame of reference standing for the image | Implemented for the plan and structure-set chain (Section 4). The check on `dose_image_uid` for recomputed doses depends on decision 30 | The manifest is hand-written unless planning is scripted. The frame-of-reference convention is unverified: if RayStation registers repeat CTs into a shared frame of reference, the check passes rows it should not. For recomputed doses the plan chain cannot distinguish blocks (Section 4) |
-| X9 | RayStation export conventions (dose units, RBE weighting, dose-to-water or dose-to-medium, grid origin, structure naming, file layout) are as the parser assumes | **Unverified.** No export has been inspected | A wrong assumption is likely to fail loudly on units and file layout, and silently on RBE weighting and dose-to-medium. Depends on allocator decision 25 |
+| X9 | RayStation export conventions (dose units, dose summation type, RBE weighting, dose-to-water or dose-to-medium, grid origin, structure naming, file layout) are as the parser assumes. In particular, an RTDOSE tagged `PLAN` holds the dose of the whole plan and is divided by `n_fx` at ingest | **Unverified.** No export has been inspected | A wrong assumption is likely to fail loudly on units and file layout and, where the ratio of target dose to `dose_per_fx_gy` is off by a factor of 3 or more, on the summation type; and silently on RBE weighting and dose-to-medium. Depends on allocator decision 25 |
 | X10 | ROI masks use `get_partial_volume_mask` binarised at 0.5 where OpenTPS provides it, and the polygon-fill `getBinaryMask` where it does not, detected at call time | Design decision (Sections 3.1, 9). The dispatch and the 35 per cent volume difference are measured against both installations | Which method runs changes masked volumes on the same contour. Neither is sensitivity-tested on real anatomy. The method is recorded per mask in the provenance table |
 | X11 | A manifest row's `path` names the dose file; its plan and structure set are found in the same directory by following `SOPInstanceUID` references | Design decision within this project's control, since whoever writes the manifest controls where the files live (Section 4) | Tested only on directories the project's own tests populate. If a real export groups files differently, the explicit search-directory override is used and the default revisited |
 | X12 | RayStation exports a DICOM deformable registration object for each pCT–rCT_j pair, in the form `readDicomVectorField` reads (`DeformableRegistrationSequence` → `DeformableRegistrationGridSequence` with position, resolution, dimensions and vector data) | **Unverified.** The conversion that consumes it is implemented and tested on a synthetic file | If the object is not exported, or its tags are populated differently, the imported backend fails at the read, in `readDicomVectorField` itself. Morphons remains available |
@@ -372,6 +390,7 @@ X7, X8, X9, X11 and X12 close only on the first real export.
 ## 14. Open items
 
 - **One measurement session on the first exported case**: dose grid dimensions and masked ROI volumes, which fix the storage container; the crop-versus-mask ratio (X4); the grid ratio and the two working-grid routes (X5); `baseResolution` at the working-grid spacing against a coarser setting; the gEUD difference between the two DVF backends (X2); the sensitivity of the masking method on real contours (X10); and the axis convention across readers (evaluator 11.4).
+- **The dose header of the first export**: `DoseSummationType`, `DoseUnits`, `DoseType` and `DoseGridScaling` per modality and schedule, the direction of `GridFrameOffsetVector`, and the ratio of the target's mean dose per fraction to `dose_per_fx_gy` before and after the conversion at ingest (Section 5, X9). A dose already per fraction that carries the tag `PLAN` would be divided twice, and `check_dose_scale` raises.
 - Whether RayStation exports scenario doses or scenario DVHs, and whether that depends on the licence tier (X7).
 - The route by which RayStation recomputes a plan on a repeat image, which fixes how `dose_image_uid` is verified (allocator decision 30, X8).
 - Whether repeat CTs receive distinct frames of reference in a RayStation export (X8), whether plan and structure set sit beside their dose file (X11), and whether the deformable registration object is exported (X12).
