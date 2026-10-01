@@ -6,12 +6,21 @@ build-backend = "setuptools.build_meta"
 name = "tps5d"
 version = "0.2.0"
 description = "5D-TPS: adaptation, fractionation and capacity-constrained allocation for adaptive proton therapy"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 dependencies = [
     "numpy>=2.5,<3",
     "scipy>=1.9",
     "matplotlib",
 ]
+
+[project.optional-dependencies]
+# The extractor and the evaluator's composition import OpenTPS and pydicom.
+# OpenTPS 3.0.1 is the only release the code supports (extractor design 3.1).
+opentps = [
+    "opentps-core==3.0.1",
+    "pydicom>=3.0.1",
+]
+test = ["pytest"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

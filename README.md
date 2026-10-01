@@ -42,8 +42,17 @@ the first one to read: it describes the present, and points to the others.
  
 ## Install
  
-    pip install -e .
+Python 3.12 is required: numpy 2.5 and OpenTPS 3.0.1 both need it. The
+extractor and the evaluator's composition run on OpenTPS 3.0.1 and on no other
+release (`docs/extractor_design.md`, Section 3.1).
+ 
+    python -m pip install -r requirements.txt
+    python -m pip install -e .
     python -m pytest tests -q
+ 
+`pip install -e .` alone installs the schema, the allocator, the generator and
+the NTCP models. The extractor and the composition also need OpenTPS, which the
+`opentps` extra declares (`pip install -e ".[opentps,test]"`).
  
 ## Status
  
@@ -56,14 +65,15 @@ the reference study's structure. That reduction is tested
 (T8), and the reference study is still reproduced as the two-option special case
 (T1).
  
-The evaluator currently contains only the NTCP models and the biological
-functions; composition, the admissibility screens and the caching layer are not
-yet written. The schema and the synthetic generator already carry the
-seven-option structure and the rescue metadata that composition will need to
-populate for real patients, ahead of that work rather than in place of it. The
-extractor is not yet written.
+The evaluator contains the NTCP models, the biological functions and the
+composition of block doses into EQD2 and NTCP. The extractor ingests DICOM,
+reads and validates the export manifest, and registers the repeat images. Both
+have been tested on synthetic DICOM only: no export from the clinical system
+has been inspected yet. The schema and the synthetic generator carry the
+seven-option structure and the rescue metadata. What the code does not yet do is
+listed in `docs/STATE.md`, Section 6.
  
 Tagged `v4-single-resource` marks the state before the second resource was
 introduced. Tags since then follow `design-vX.Y`, for the design document
-generation the code's behaviour matches rather than for any file touched; the
-current tag is `design-v6.3`.
+generation the code's behaviour matches rather than for any file touched. The
+current tag is named in the first lines of `docs/STATE.md`.

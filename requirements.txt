@@ -1,5 +1,7 @@
 numpy>=2.5,<3
 scipy>=1.9
 matplotlib
+opentps-core==3.0.1
+pydicom>=3.0.1
 SimpleITK==2.5.6
 pytest
