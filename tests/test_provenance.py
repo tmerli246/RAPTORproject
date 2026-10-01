@@ -178,5 +178,7 @@ class TestBlockFractionsAndRecords:
         assert block_fractions_record('nb:p1/hyp', assumed, assumption='A23').kind == 'assumed'
         with pytest.raises(ValueError, match='source must not be empty'):
             block_fractions_record('nb:p1/hyp', assumed)
-        m = mask_method_record('mask:p1/rectum', 'getBinaryMask')
-        assert m.kind == 'measured' and 'getBinaryMask' in m.source
+        m = mask_method_record('mask:p1/rectum', 0.5, 16)
+        assert m.kind == 'measured'
+        assert 'binarization_threshold=0.5' in m.source and 'precision=16' in m.source
+        assert m.content_hash != mask_method_record('mask:p1/rectum', 0.9, 16).content_hash

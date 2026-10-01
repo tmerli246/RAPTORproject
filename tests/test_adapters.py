@@ -263,7 +263,7 @@ from opentps.core.data._roiContour import ROIContour
 
 from tps5d.extractor.adapters import (
     extract_roi_mask, union_bounding_box, crop_to_bounds, roi_volume_cc,
-    roi_mask_algorithm, ROI_BINARIZATION_THRESHOLD,
+    ROI_BINARIZATION_THRESHOLD,
 )
 
 
@@ -331,20 +331,7 @@ class TestExtractROIMask:
         volume should not increase as the threshold rises. This is the
         parameter get_partial_volume_mask silently returns a float mask
         instead of thresholding on, if it is left at its own default.
-
-        Only meaningful when get_partial_volume_mask is present: on
-        getBinaryMask there is no threshold to vary, and extract_roi_mask
-        correctly raises rather than ignoring it, confirmed against the
-        project's own checkout on 14 September 2026. That raise has its
-        own test, TestROIMaskBackendDispatch.test_forced_getBinaryMask_path_rejects_overridden_threshold;
-        this test is about the other backend's actual behaviour and is
-        skipped where that backend is absent, rather than failing on a
-        property this environment cannot have.
         """
-        if roi_mask_algorithm() != 'get_partial_volume_mask':
-            pytest.skip('get_partial_volume_mask not present in this OpenTPS; '
-                       'binarization_threshold has no effect on getBinaryMask.')
-
         rtstruct = _cylinder_rtstruct()
         vols = [
             extract_roi_mask(rtstruct, 'PTV', grid=ROI_GRID,
@@ -354,9 +341,9 @@ class TestExtractROIMask:
         assert vols[0] >= vols[1] >= vols[2]
 
     def test_default_threshold_matches_deprecated_wrapper(self):
-        """ROI_BINARIZATION_THRESHOLD reproduces what the deprecated
-        getBinaryMask hardcoded, so switching call sites away from it is
-        not a silent behaviour change.
+        """ROI_BINARIZATION_THRESHOLD is the value the deprecated
+        getBinaryMask passes [OpenTPS source], so switching call sites away
+        from it is not a silent behaviour change.
         """
         assert ROI_BINARIZATION_THRESHOLD == 0.5
 
@@ -373,87 +360,6 @@ class TestExtractROIMask:
         rtstruct = _cylinder_rtstruct()  # x,y in 14-26mm, z in 10-18mm
         too_small = WorkingGrid(origin=(0.0, 0.0, 0.0), spacing=(2.0, 2.0, 2.0),
                                 grid_size=(5, 5, 5))  # covers only 0-8mm per axis
-
-        with pytest.raises(ValueError, match='does not contain'):
-            extract_roi_mask(rtstruct, 'PTV', grid=too_small)
-
-
-class TestROIMaskBackendDispatch:
-    """roi_mask_algorithm() and the getBinaryMask fallback path.
-
-    This sandbox's OpenTPS (3.0.1) has both get_partial_volume_mask and a
-    deprecated getBinaryMask that forwards to it, so roi_mask_algorithm()
-    here always reports 'get_partial_volume_mask'; the tests below force
-    the other branch via monkeypatch to exercise extract_roi_mask's own
-    dispatch and guard logic. This validates the calling convention and
-    control flow, not numerical agreement with the project's own OpenTPS
-    checkout, whose getBinaryMask is a different, non-forwarding
-    implementation (confirmed by reading its source on 12 September 2026)
-    and has not been run against this test file.
-    """
-
-    def test_algorithm_matches_installed_environment(self):
-        # Whichever OpenTPS is installed, this must report one of the two
-        # known algorithms. Asserting a specific one here would be
-        # asserting a fact about the sandbox, not about the code: the
-        # public OpenTPS 3.0.1 has get_partial_volume_mask, the project's
-        # own checkout does not (confirmed 14 September 2026), and this
-        # test runs against either.
-        assert roi_mask_algorithm() in ('get_partial_volume_mask', 'getBinaryMask')
-
-    def test_forced_getBinaryMask_path_returns_boolean_mask(self, monkeypatch):
-        monkeypatch.setattr('tps5d.extractor.adapters.roi_mask_algorithm',
-                            lambda: 'getBinaryMask')
-        rtstruct = _cylinder_rtstruct()
-
-        mask = extract_roi_mask(rtstruct, 'PTV', grid=ROI_GRID)
-
-        assert mask.imageArray.dtype == bool
-        assert tuple(int(v) for v in mask.gridSize) == ROI_GRID.grid_size
-
-    def test_forced_getBinaryMask_path_rejects_overridden_threshold(self, monkeypatch):
-        """A caller who tunes binarization_threshold expecting it to matter
-        must be told it will not, not have it silently dropped: getBinaryMask
-        has no such parameter at all (confirmed 12 September 2026).
-        """
-        monkeypatch.setattr('tps5d.extractor.adapters.roi_mask_algorithm',
-                            lambda: 'getBinaryMask')
-        rtstruct = _cylinder_rtstruct()
-
-        with pytest.raises(ValueError, match='silently ignored'):
-            extract_roi_mask(rtstruct, 'PTV', grid=ROI_GRID,
-                            binarization_threshold=0.9)
-
-    def test_forced_getBinaryMask_path_rejects_overridden_precision(self, monkeypatch):
-        monkeypatch.setattr('tps5d.extractor.adapters.roi_mask_algorithm',
-                            lambda: 'getBinaryMask')
-        rtstruct = _cylinder_rtstruct()
-
-        with pytest.raises(ValueError, match='silently ignored'):
-            extract_roi_mask(rtstruct, 'PTV', grid=ROI_GRID, precision=32)
-
-    def test_forced_getBinaryMask_path_accepts_call_at_plain_defaults(self, monkeypatch):
-        """The common case: a caller who never touches these two
-        parameters must not be penalised for an environment they did not
-        choose.
-        """
-        monkeypatch.setattr('tps5d.extractor.adapters.roi_mask_algorithm',
-                            lambda: 'getBinaryMask')
-        rtstruct = _cylinder_rtstruct()
-
-        mask = extract_roi_mask(rtstruct, 'PTV', grid=ROI_GRID)
-        assert mask.imageArray.sum() > 0
-
-    def test_forced_getBinaryMask_path_still_checks_containment_first(self, monkeypatch):
-        """The containment guard runs before backend dispatch, so it must
-        still fire on the getBinaryMask path: that implementation gives no
-        signal at all on a grid mismatch, not even a malformed warning.
-        """
-        monkeypatch.setattr('tps5d.extractor.adapters.roi_mask_algorithm',
-                            lambda: 'getBinaryMask')
-        rtstruct = _cylinder_rtstruct()
-        too_small = WorkingGrid(origin=(0.0, 0.0, 0.0), spacing=(2.0, 2.0, 2.0),
-                                grid_size=(5, 5, 5))
 
         with pytest.raises(ValueError, match='does not contain'):
             extract_roi_mask(rtstruct, 'PTV', grid=too_small)
@@ -492,40 +398,6 @@ class TestUnionBoundingBox:
         # ROI's own bbox alone
         b1 = union_bounding_box([m1])
         assert bounds.shape()[0] > b1.shape()[0]
-
-    def test_single_slice_contour_on_getBinaryMask_path_raises(self, monkeypatch):
-        """A contour on a single z-slice makes getBinaryMask return
-        imageArray=None rather than raise: found by reading the source on
-        12 September 2026, and reproduced for real against the project's
-        own OpenTPS checkout on 14 September 2026, where a single-z-slice
-        fixture used elsewhere in this file tripped it by accident. Kept
-        as its own test so the behaviour has dedicated coverage instead of
-        being hit incidentally by a fixture testing something else.
-
-        Skipped where get_partial_volume_mask is present: there,
-        getBinaryMask is the deprecated wrapper that forwards to it
-        (extractor 3.1), not the native old implementation, and does not
-        exhibit this bug. Confirmed by running this exact test against
-        both environments on 14 September 2026: it fails to raise in the
-        sandbox's OpenTPS 3.0.1 for precisely this reason, which is what
-        the skip condition below now catches instead of misreporting a
-        behaviour difference as a code defect.
-        """
-        from opentps.core.data._roiContour import ROIContour
-        if hasattr(ROIContour, 'get_partial_volume_mask'):
-            pytest.skip('getBinaryMask here forwards to get_partial_volume_mask '
-                       'and does not exhibit the old implementation\'s '
-                       'single-slice bug.')
-
-        monkeypatch.setattr('tps5d.extractor.adapters.roi_mask_algorithm',
-                            lambda: 'getBinaryMask')
-        rtstruct = RTStruct(name='single_slice')
-        contour = ROIContour(name='A')
-        contour.polygonMesh = [_circle_polygon(6.0, 6.0, 10.0, 3.0)]  # one slice
-        rtstruct.appendContour(contour)
-
-        with pytest.raises(ValueError, match='single z-slice'):
-            extract_roi_mask(rtstruct, 'A', grid=ROI_GRID)
 
     def test_margin_extends_and_clamps(self):
         rtstruct = _cylinder_rtstruct()

@@ -1,19 +1,19 @@
-"""Provenance table (extractor design 13.1).
+"""Provenance table (extractor design 12.1).
 
 No OpenTPS import: this module stores and queries plain records, it does
 not compute anything about the objects those records describe.
 
-The requirement, stated in extractor design 13, is enumerability, not
+The requirement, stated in extractor design 12, is enumerability, not
 annotation: the tag exists so that the set of parameters to perturb can be
 listed by query, not so that a value has a label attached somewhere. A
 field scattered through every record satisfies the wording and not the
 requirement, since enumerating would then mean traversing the whole store.
-This module is the separate table extractor design 13.1 asks for.
+This module is the separate table extractor design 12.1 asks for.
 
-Only primitives are tagged, per extractor design 13.2: dose arrays, image
+Only primitives are tagged, per extractor design 12.2: dose arrays, image
 and grid geometry, ROI masks and the mapping file, facility constants,
 NTCP model parameters, swept study parameters, the export manifest, the
-prescription, the DIR settings, the OpenTPS commit hash. Derived
+prescription, the DIR settings, the OpenTPS version. Derived
 quantities, D98, D95, V95%, gEUD, DVHs, accumulated dose, occupancies,
 inherit from their inputs and are not tagged themselves. This module does
 not and cannot enforce that distinction: it has no way to know whether a
@@ -41,7 +41,7 @@ class ProvenanceRecord:
                   not something this record parses or validates.
     kind          'measured' | 'published' | 'assumed' | 'swept'
     source        e.g. 'RayStation <engine>' | 'Michalski 2010 QUANTEC' | 'X9'.
-                  Where kind is 'assumed', extractor design 13.1 states this
+                  Where kind is 'assumed', extractor design 12.1 states this
                   names an assumption ID from the extractor, allocator or
                   evaluator register, which is what makes the register
                   checkable against the data rather than parallel to it.
@@ -66,17 +66,20 @@ class ProvenanceRecord:
             raise ValueError(f"{self.key}: source must not be empty")
 
 
-def mask_method_record(key: str, method: str) -> ProvenanceRecord:
-    """Provenance of the rasterisation method behind a ROI mask.
+def mask_method_record(key: str, binarization_threshold: float,
+                       precision: int) -> ProvenanceRecord:
+    """Provenance of the rasterisation parameters behind a ROI mask.
 
-    `method` is what `adapters.roi_mask_algorithm()` returns. The two OpenTPS
-    methods differ by about a third in measured volume on one synthetic
-    cylinder, so the method is a property of the mask and is recorded with it
-    (extractor design 12.2).
+    The threshold and the supersampling factor passed to
+    `ROIContour.get_partial_volume_mask` change the masked volume, so they
+    are properties of the mask and are recorded with it (extractor design
+    3.4, 12.2). The values are passed in, not imported from `adapters`,
+    since this module has no OpenTPS import.
     """
-    return ProvenanceRecord(key = key, kind = 'measured',
-                            source = f"ROI rasterisation: {method}",
-                            content_hash = hashlib.sha256(method.encode('utf-8')).hexdigest()[:16])
+    source = (f"ROI rasterisation: get_partial_volume_mask, "
+              f"binarization_threshold={binarization_threshold}, precision={precision}")
+    return ProvenanceRecord(key = key, kind = 'measured', source = source,
+                            content_hash = hashlib.sha256(source.encode('utf-8')).hexdigest()[:16])
 
 
 def block_fractions_record(key: str, fractions: BlockFractions,
@@ -131,7 +134,7 @@ class ProvenanceTable:
     def query(self, *, kind: str = None) -> list:
         """Every record, or every record of one `kind`, sorted by key.
 
-        This is the enumerability extractor design 13 asks for: a caller
+        This is the enumerability extractor design 12 asks for: a caller
         studying sensitivity to assumed parameters calls
         `table.query(kind='assumed')` and gets the complete, current list,
         rather than maintaining a second list of what was assumed by hand.

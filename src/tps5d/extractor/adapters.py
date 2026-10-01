@@ -24,19 +24,11 @@ from .records import DIRSettings, WorkingGrid, CropBounds
 
 
 # Binarisation threshold for ROIContour.get_partial_volume_mask, X10. The
-# deprecated getBinaryMask hardcoded 0.5 internally; get_partial_volume_mask's
-# own default is None, which returns a float partial-volume array rather than
-# the bool the storage schema requires (extractor design 5). 0.5 is adopted
-# explicitly, matching the deprecated wrapper's behaviour, rather than left to
-# whatever the next OpenTPS release decides.
-#
-# Applies only when get_partial_volume_mask is present. An older getBinaryMask
-# exists in some OpenTPS checkouts with no threshold or precision concept at
-# all: a hard polygon fill, boolean by construction. The two are not
-# numerically equivalent: about 35% difference in measured volume on an
-# identical synthetic contour. extract_roi_mask raises rather than silently
-# ignoring these two parameters if the environment falls back to that older
-# implementation.
+# method's own default is None, which returns a float partial-volume array
+# rather than the bool the storage schema requires (extractor design 5), so
+# the threshold is passed. 0.5 is the value the deprecated getBinaryMask
+# passes [OpenTPS source]; it is adopted explicitly rather than left to
+# whatever a later OpenTPS release decides.
 ROI_BINARIZATION_THRESHOLD = 0.5
 
 # Supersampling factor for the same call. OpenTPS's own default; passed
@@ -219,23 +211,6 @@ def _contour_physical_bounds(contour):
             (float(xs.max()), float(ys.max()), float(zs.max())))
 
 
-def roi_mask_algorithm() -> str:
-    """Which OpenTPS ROI-rasterisation method extract_roi_mask uses in this
-    environment: 'get_partial_volume_mask' or 'getBinaryMask'.
-
-    Not a per-call choice: a fact about the installed OpenTPS, fixed for as
-    long as the environment is. The two are not numerically equivalent: about
-    35% difference in measured volume on an identical synthetic cylinder.
-    This is a fact the provenance table (extractor 12.1) records as a mask's
-    `source`; `provenance.mask_method_record` builds the record from this
-    function's result.
-    """
-    from opentps.core.data._roiContour import ROIContour
-    if hasattr(ROIContour, 'get_partial_volume_mask'):
-        return 'get_partial_volume_mask'
-    return 'getBinaryMask'
-
-
 def extract_roi_mask(rtstruct, dicom_name: str, *, grid: WorkingGrid,
                      binarization_threshold: float = ROI_BINARIZATION_THRESHOLD,
                      precision: int = ROI_RASTER_PRECISION):
@@ -253,36 +228,19 @@ def extract_roi_mask(rtstruct, dicom_name: str, *, grid: WorkingGrid,
     immediately instead, with the available names attached, which is what
     extractor design 9's "an unmapped structure raises" means concretely.
 
-    **Two OpenTPS implementations exist across the environments this
-    project runs in, and neither signals a grid mismatch safely.**
-    `get_partial_volume_mask`, present in the public OpenTPS 3.0.1, logs
-    rather than raises when the working grid does not contain the
+    **`get_partial_volume_mask` does not signal a grid mismatch safely.**
+    It logs rather than raises when the working grid does not contain the
     contour's bounding box, and that internal logging call is itself
-    malformed and raises TypeError under some logging configurations
-    rather than printing (observed under pytest's capture).
-    `getBinaryMask`, present in the project's own OpenTPS checkout, gives no
-    signal at all: it resamples onto the requested grid with `fillValue=0`
-    and silently truncates whatever falls outside it. This function
-    therefore checks physical containment itself, from the contour's own
-    `polygonMesh`, before calling into OpenTPS at all, regardless of which
-    backend `roi_mask_algorithm()` selects.
+    malformed and raises TypeError under some logging configurations rather
+    than printing (observed under pytest's capture) [OpenTPS source]. This
+    function therefore checks physical containment itself, from the
+    contour's own `polygonMesh`, before calling into OpenTPS.
 
-    **Which backend runs is detected via `roi_mask_algorithm()`, not
-    assumed.** `get_partial_volume_mask` is called when present, with
-    `binarization_threshold` and `precision` explicit per extractor 3.4,
-    since the method's own default for the threshold is `None` and returns
-    a float array rather than the bool the schema requires. Where it is
-    absent, `getBinaryMask` is called instead: a hard polygon fill with no
-    threshold or precision concept whatsoever, boolean by construction, that
-    honours the requested origin, spacing and gridSize exactly. Because the
-    two are not numerically equivalent, a caller who has overridden
-    `binarization_threshold` or `precision` away from their defaults gets a
-    raised error rather than a silently ignored argument if the environment
-    falls back to `getBinaryMask`.
-
-    `getBinaryMask` also has its own silent-failure edge case: a contour on
-    a single z-slice makes it return `imageArray=None` rather than raising.
-    Checked for explicitly below.
+    `binarization_threshold` and `precision` are passed explicitly per
+    extractor 3.4, since the method's own default for the threshold is
+    `None` and returns a float array rather than the bool the schema
+    requires. The method exists from OpenTPS 3.0.1; on an older release the
+    call raises AttributeError.
 
     Returns
     -------
@@ -307,36 +265,9 @@ def extract_roi_mask(rtstruct, dicom_name: str, *, grid: WorkingGrid,
             f"working grid does not contain the physical extent of "
             f"{dicom_name!r}: contour spans {lo_phys} to {hi_phys} mm, "
             f"grid covers {tuple(grid_lo)} to {tuple(grid_hi)} mm. "
-            f"Neither OpenTPS backend signals this safely on its own; "
-            f"this check runs first rather than trusting either."
+            f"OpenTPS does not signal this safely on its own; "
+            f"this check runs first rather than trusting it."
         )
-
-    algo = roi_mask_algorithm()
-
-    if algo == 'getBinaryMask':
-        if (binarization_threshold != ROI_BINARIZATION_THRESHOLD
-                or precision != ROI_RASTER_PRECISION):
-            raise ValueError(
-                f"this environment's OpenTPS has no get_partial_volume_mask, "
-                f"so extract_roi_mask falls back to "
-                f"getBinaryMask, a hard polygon fill with no threshold or "
-                f"precision concept at all. binarization_threshold="
-                f"{binarization_threshold} and precision={precision} would "
-                f"be silently ignored rather than honoured; raising instead "
-                f"of doing that."
-            )
-        mask = contour.getBinaryMask(
-            origin=grid.origin,
-            gridSize=grid.grid_size,
-            spacing=grid.spacing,
-        )
-        if mask.imageArray is None:
-            raise ValueError(
-                f"getBinaryMask returned an empty mask for {dicom_name!r}: "
-                f"this OpenTPS implementation returns imageArray=None, "
-                f"rather than raising, for a contour on a single z-slice."
-            )
-        return mask
 
     return contour.get_partial_volume_mask(
         origin=grid.origin,
@@ -528,8 +459,8 @@ def extract_roi_mask_by_canonical_name(rtstruct, canonical_name: str, *,
 
     A thin composition, not a new mechanism: resolve_dicom_name (roi_mapping.py)
     turns `canonical_name` into the literal name this specific rtstruct
-    carries, and extract_roi_mask does everything else, containment check,
-    backend dispatch, the single-slice guard, unchanged. Kept separate from
+    carries, and extract_roi_mask does everything else, containment check
+    and rasterisation, unchanged. Kept separate from
     extract_roi_mask itself so that function's contract stays "a literal
     DICOM name in, a mask out" with no name-matching logic anywhere near it,
     per extractor design 9's prohibition on fuzzy matching creeping in.
