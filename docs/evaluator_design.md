@@ -1,6 +1,6 @@
 # Evaluation Module
 
-Version 6.8. Version history is in `CHANGELOG.md`. Project status and open items are in `STATE.md`.
+Version 6.9. Version history is in `CHANGELOG.md`. Project status and open items are in `STATE.md`.
 
 ## 1. Purpose and scope
 
@@ -316,7 +316,7 @@ Four conventions are fixed by this interface.
 | `tests/test_end_to_end.py` | The seams between modules: DICOM ingest of CT and dose, real Morphons registration, `compute_bed`, `warp_bed`, `sum_bed`, `bed_to_eqd2`, `reduce_to_dvh`, into `registry.evaluate` with `rectum_bleeding_g2`. Two blocks of uniform dose, n_fx = 25 per block at 2.0 and 1.8 Gy per fraction, α/β = 3. Expected values computed by hand beforehand: EQD2 = 93.2 Gy, NTCP = 0.948501; reproduced to five and six significant figures, the residual consistent with registration interpolation. The cached DVH path and the direct voxel path agree within the binning error of Section 7.2 |
 | `tests/test_cohort_validation.py` | `validate_cohort` against the real registry: raises on a missing ROI and on a missing covariate, naming the patient; a cohort with one invalid patient stops before any patient reaches `evaluate()`. The covariate path uses a locally constructed logistic model, since the registry holds none with covariates |
 
-All three run against both the public OpenTPS release and the project's own checkout.
+All three run against OpenTPS 3.0.1.
 
 ### 11.3 What is not built, and why
 

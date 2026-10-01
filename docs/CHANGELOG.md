@@ -8,7 +8,39 @@ Consolidated version history for the four design documents, kept separate from t
 
 **Full text of superseded versions** is recoverable from git. The entries record what changed and why, and archive retired rows and deleted specification text that may be needed again.
 
-## 2026-## 2026-09-30, code review round: material moved out of the code
+## 2026-10-01, one OpenTPS installation
+
+**Versions.** `extractor_design.md` 5.10 to 5.11, `evaluator_design.md` 6.8 to 6.9, `STATE.md` of 30 September to 1 October. No section was renumbered, so no renumbering map. `ROAD_TO_PAPER_1.md` and `allocator_design.md` are unchanged. The code tag moves from `design-v6.4` to `design-v6.5`. The run of the suite on the project machine is recorded in `STATE.md`.
+
+**Cause.** Through 30 September the code supported two OpenTPS installations, the public release and a 3.0.0 source checkout, which carry different ROI rasterisation methods. Maintaining both cost a dispatch in the adapter, tests that forced the unused branch by substitution, and a confirmation of every row of extractor 3.4 on a second installation. The checkout was found at the tag `v3.0.0` with no local change to a tracked file, so nothing in it is needed by the project. The decision, taken on 30 September, is to run on the public release 3.0.1 only.
+
+**Code.**
+
+- `adapters.py`: `roi_mask_algorithm` and the `getBinaryMask` branch of `extract_roi_mask` are removed, with the guard for a contour on a single slice that only that branch needed. On 3.0.1 a single-slice contour gives a mask (probed on 1 October on a synthetic circle). On a release without `get_partial_volume_mask` the call raises `AttributeError`; no version check was added.
+- `provenance.py`: `mask_method_record(key, binarization_threshold, precision)` replaces `mask_method_record(key, method)`. With one method the record of its name was a constant; the threshold and the precision are what varies and change the masked volume. Nothing in the package called the function; only the test did.
+- Tests: the six tests of `TestROIMaskBackendDispatch` and the single-slice test of the `getBinaryMask` branch are removed. The threshold test no longer skips. The provenance test follows the new signature. 475 passed and 1 skipped (476 collected) become 469 passed and 0 skipped; the skipped test was the single-slice one.
+
+**Environment.**
+
+- `requires-python` in `pyproject.toml` goes from `>=3.10` to `>=3.12`, which numpy 2.5 (`>=3.12`) and opentps-core 3.0.1 (`>=3.12,<3.13`) already require. The extras `opentps` (`opentps-core==3.0.1`, `pydicom>=3.0.1`) and `test` (`pytest`) are added, and `requirements.txt` gains the same two pins. `pydicom` is imported directly by `ingest.py` and `manifest.py` and was declared nowhere. The pin is on `opentps-core`, the package `import opentps.core` comes from, and not on the `opentps` meta-package, which adds the GUI. `README.md`: install instructions, the status paragraph, which still listed the extractor as not written, and the tag sentence, which now points to STATE and no longer names a tag.
+- Verified on 1 October in two clean Python 3.12 environments. From `requirements.txt` and `pip install -e .`: `pip check` clean, 469 passed, 0 skipped. With `pip install -e ".[test]"` only: 329 passed, 1 failed (`test_schema`, which imports `extractor.manifest`, which imports pydicom) and 6 test files not collected (those that import OpenTPS or pydicom).
+
+**Documents.**
+
+- Extractor 3.1: the installation paragraph states that the code requires 3.0.1 and supports neither a checkout nor an earlier release. The ROI row of the mapping table names `get_partial_volume_mask` only.
+- Extractor 3.4: the row on the optional geometry arguments is removed (it described `getBinaryMask`; `get_partial_volume_mask` requires them). The threshold row records the parameters passed. The 3.0.0 behaviour of `readDicomCT` is removed from its row. The closing paragraph no longer waits for a confirmation on the checkout.
+- Extractor 3.5, 9, 12.1, 12.2, 14 and X10 follow the single method. The OpenTPS commit hash is replaced by the OpenTPS version as a primitive of Section 12.2.
+- Evaluator 11.2: "both the public OpenTPS release and the project's own checkout" becomes "OpenTPS 3.0.1".
+- `STATE.md`: round paragraph, document versions, the environment line and the test line of Section 6, and the next actions: the closing action of the previous round is removed. The code-section line that still named tag `design-v6.3` now names `design-v6.5`. The test line records the run on the project machine, with the command, the environment and the date; runs elsewhere are not recorded.
+
+**Retired material.**
+
+- The 3.0.0 checkout's `getBinaryMask` was a hard polygon fill with no threshold or precision, onto the requested grid with `fillValue=0`, silently truncating whatever fell outside it, and it returned `imageArray=None` for a contour on a single slice. In 3.0.1 it is a deprecated wrapper that forwards to `get_partial_volume_mask` with `binarization_threshold=0.5`.
+- On 12 September the two methods differed by about 35 per cent in measured volume on an identical synthetic cylinder. The figure stays here and is not a property of the pipeline any more.
+- In 3.0.0, `readDicomCT` took the z-spacing as the mean distance between the slice positions and, for a `SliceThickness` that differed by more than 0.001 mm, gave a message and no exception. In 3.0.1 it takes `SpacingBetweenSlices`, then `SliceThickness`, and the mean distance only when both are absent. `ingest_ct` checks the result against the slice positions in both cases.
+- The rows of extractor 3.4 that carry a version were read from the 3.0.1 source on 1 October (`readDicomCT`, `readDicomDose`, `Deformation3D.resample`, `Deformation3D.deformImage`, the `DVH` constructor and `computeDVH`, `ROIContour.get_partial_volume_mask`). They were read, not observed on an export.
+
+## 2026-09-30, code review round: material moved out of the code
 
 The docstring and comment pass of the same round removed from the source the history, the dates of verification and the retired identifiers that had accumulated there, so that the code states what it does and the history sits here. Nothing below changes behaviour: the syntax trees of the modules are identical before and after, apart from string constants, of which four are error messages that lost a date of verification (three in `adapters.py`, one in `ingest.py`).
 
@@ -28,7 +60,8 @@ The docstring and comment pass of the same round removed from the source the his
 **A wrong statement replaced.** A comment in `synth.py` gave the cost of the adapted hypofractionated proton arm as a fifth of the standard non-adapted one, and concluded that the standard non-adapted arm is below the hull in every reachable configuration. The cost ratio is n_hyp · tau_mult / n_std + Δτ / (n_std / n_hyp · τ0), about a quarter to a third at Δτ up to 15 min with the default fraction counts, and the arm reaches the hull for a large biological penalty combined with a long adaptation time. The comment now gives the percentages that `scripts/shape_fractions.py` prints (allocator 5.5).
 
 **Tolerance in `dominance.py`.** The comment on the cross-product tolerance gave a scale for the utilities and costs without numbers. It now gives orders of magnitude: costs of order 1e3 min, utilities of order 5e-2, a cross product of order 1e1 and a rounding error of order 1e-14.
-09-30, code review round: documents
+
+## 2026-09-30, code review round: documents
 
 **Versions.** `ROAD_TO_PAPER_1.md` 7.1 to 7.2, `allocator_design.md` 7.1 to 7.2, `evaluator_design.md` 6.7 to 6.8, `extractor_design.md` 5.9 to 5.10, `STATE.md` of 29 September to 30 September. No section was renumbered, so no renumbering map. The code tag moves from `design-v6.3` to `design-v6.4` once the suite has been run on both OpenTPS installations.
 
