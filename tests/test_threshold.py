@@ -242,21 +242,24 @@ def test_pen_star_decides_whether_the_standard_adapted_arm_is_on_the_hull(pen, a
         checked += 1
     assert checked >= 10
 
+@pytest.mark.parametrize('pen', [0.0, 0.005])
 @pytest.mark.parametrize('a_mult', [1.5, 2.0])
 @pytest.mark.parametrize('dtau', [5.0, 15.0, 60.0])
-def test_hypofractionated_non_adapted_arm_obeys_the_per_schedule_threshold(dtau, a_mult):
-    """Allocator 6.2: with pen = 0 and a_mult > 1 the standard adapted arm is
-    below the pooled hull, so the hypofractionated chain is the frontier and
-    PT-NA hyp is on the hull iff dtau >= tau0_hyp a a_mult / m, with tau0_hyp =
-    tau_mult tau0 (generator defaults 1.5 and 30)."""
+def test_hypofractionated_non_adapted_arm_obeys_the_per_schedule_threshold(dtau, a_mult, pen):
+    """Allocator 6.2: with pen < pen* the standard adapted arm is below the
+    pooled hull, so the hypofractionated chain is the frontier and PT-NA hyp is
+    on the hull iff dtau >= tau0_hyp a a_mult / (m - pen), with tau0_hyp =
+    tau_mult tau0 (generator defaults 1.5 and 30). m and a are the standard
+    schedule's benefits, so m - pen is the hypofractionated modality benefit.
+    pen = 0.005 stays below pen* for every patient, since a >= 0.02."""
     from tps5d.generator.synth import two_scheme_cohort
     cohort = two_scheme_cohort(n = 12, dtau = dtau, tau0 = 30.0, tau_mult = 1.5,
-                               shape = dict(pen = 0.0, a_mult = a_mult), seed = 4)
+                               shape = dict(pen = pen, a_mult = a_mult), seed = 4)
     checked = 0
     for pid in cohort.pids:
         m, a = _m_and_a(cohort, pid)
         assert 'pta' not in _proton_hull_sids(cohort, pid)
-        star = 1.5 * 30.0 * a * a_mult / m
+        star = 1.5 * 30.0 * a * a_mult / (m - pen)
         if abs(dtau - star) < 1e-6:
             continue
         assert ('pth' in _proton_hull_sids(cohort, pid)) == (dtau > star), (pid, dtau, star)
