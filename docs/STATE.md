@@ -155,7 +155,7 @@ Full detail in `dc18_timeline.docx`. Salient points only.
 | M13 | Jan 2027 | Career Development Plan, and the ADAPT-5D data description for the consortium DMP. Both drafted at M11 or M12, since M13 to M15 are fully committed |
 | M14 | Feb 2027 | Training Camp 1, presentation to the EU Project Officer |
 | M15 | Mar 2027 | Secondment 1, Ljubljana, Jeraj, 2 months |
-| M19 | Jul 2027 | **D4.1, Upgraded OpenTPS**, covered by the photon plan evaluation. Public, posted automatically by REA. Feature freeze before departure at M14 if possible |
+| M19 | Jul 2027 | **D4.1, Upgraded OpenTPS**, covered by the photon plan evaluation. Public, posted automatically by REA. Feature freeze by the end of M14, before departure at M15, if possible |
 | M30 | Jun 2028 | Secondment 2, HPTC, Blommestein, 2 months |
 | M33 | Sep 2028 | **MS13**, verified by implemented software. Internal freeze at M28 |
 | M37 | Jan 2029 | D4.7, automated biological adaptive PT planning. Depends on D4.2, D4.3 and D4.5 from other groups |
